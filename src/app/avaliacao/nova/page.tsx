@@ -1,31 +1,18 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Activity,
-  AlertOctagon,
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
-  CheckCircle2,
-  ClipboardCheck,
-  Dumbbell,
-  Flame,
-  HeartHandshake,
+  Loader2,
   Plus,
-  Ruler,
-  Scale,
-  ShieldAlert,
-  Sparkles,
-  Stethoscope,
-  Timer,
   Trash2,
-  User,
 } from 'lucide-react';
 import { useFisioTrack } from '@/context/FisioTrackContext';
+import { getAthleteByIdAction } from '@/app/actions/athleteActions';
 import {
   BodyRegion,
   BodySide,
@@ -35,7 +22,6 @@ import {
   InjuryRecord,
   OrthopedicJoint,
   OrthopedicTestItem,
-  OrthopedicTestResult,
   RecoveryStatus,
 } from '@/types/fisiotrack';
 import {
@@ -49,14 +35,14 @@ import { InteractiveBodyMap } from '@/components/assessment/InteractiveBodyMap';
 import { cn } from '@/lib/utils';
 
 const SPORTS_OPTIONS = [
-  { name: 'Futebol', emoji: '⚽' },
-  { name: 'Corrida de Rua', emoji: '🏃' },
-  { name: 'Crossfit', emoji: '🏋️' },
-  { name: 'Vôlei', emoji: '🏐' },
-  { name: 'Basquete', emoji: '🏀' },
-  { name: 'Natação', emoji: '🏊' },
-  { name: 'Beach Tennis', emoji: '🎾' },
-  { name: 'Ciclismo', emoji: '🚴' },
+  'Futebol',
+  'Corrida de Rua',
+  'Crossfit',
+  'Vôlei',
+  'Basquete',
+  'Natação',
+  'Beach Tennis',
+  'Ciclismo',
 ];
 
 const QUICK_INJURY_PRESETS: Record<BodyRegion, string[]> = {
@@ -102,37 +88,41 @@ const QUICK_INJURY_PRESETS: Record<BodyRegion, string[]> = {
 const STEPS = [
   {
     number: 1,
+    code: '01',
     title: 'Identificação & Esporte',
-    subtitle: 'Perfil antropométrico e carga semanal',
-    icon: User,
+    subtitle: 'Perfil e rotina semanal',
   },
   {
     number: 2,
-    title: 'Histórico & Mapa Corporal',
-    subtitle: 'Lesões prévias, cirurgias e EVA',
-    icon: HeartHandshake,
+    code: '02',
+    title: 'Histórico & Mapeamento',
+    subtitle: 'Lesões prévias e EVA',
   },
   {
     number: 3,
+    code: '03',
     title: 'Testes Funcionais',
-    subtitle: 'Hop Test, Y-Balance, Lunge e LSI%',
-    icon: Activity,
+    subtitle: 'Hop Test, Y-Balance e Lunge',
   },
   {
     number: 4,
+    code: '04',
     title: 'Testes Ortopédicos',
-    subtitle: 'Exame especial articular e conclusão',
-    icon: Stethoscope,
+    subtitle: 'Exame clínico articular',
   },
 ];
 
-export default function NovaAvaliacaoPage() {
+function AssessmentWizardContent() {
   const router = useRouter();
-  const { addAthlete } = useFisioTrack();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get('edit');
+
+  const { addAthlete, updateAthlete, getAthleteById, isMutating } = useFisioTrack();
 
   const [currentStep, setCurrentStep] = useState(1);
+  const [loadingEditData, setLoadingEditData] = useState(false);
 
-  // Step 1 State: Athlete Identification & Sport Routine
+  // Step 1 State
   const [name, setName] = useState('');
   const [age, setAge] = useState<number>(23);
   const [weight, setWeight] = useState<number>(72);
@@ -150,7 +140,7 @@ export default function NovaAvaliacaoPage() {
   const [newExtraName, setNewExtraName] = useState('');
   const [newExtraFreq, setNewExtraFreq] = useState<number>(2);
 
-  // Step 2 State: Injuries & Body Map
+  // Step 2 State
   const [injuries, setInjuries] = useState<InjuryRecord[]>([]);
   const [draftType, setDraftType] = useState<'Lesão' | 'Cirurgia'>('Lesão');
   const [draftRegion, setDraftRegion] = useState<BodyRegion>('Joelho');
@@ -161,7 +151,7 @@ export default function NovaAvaliacaoPage() {
     useState<RecoveryStatus>('Desconforto ocasional');
   const [draftPainEVA, setDraftPainEVA] = useState<number>(3);
 
-  // Step 3 State: Functional Assessment
+  // Step 3 State
   const [hopTestRightCm, setHopTestRightCm] = useState<number>(162);
   const [hopTestLeftCm, setHopTestLeftCm] = useState<number>(182);
   const [yBalanceRightCm, setYBalanceRightCm] = useState<number>(92);
@@ -171,13 +161,56 @@ export default function NovaAvaliacaoPage() {
   const [plankTimeSeconds, setPlankTimeSeconds] = useState<number>(90);
   const [functionalNotes, setFunctionalNotes] = useState('');
 
-  // Step 4 State: Orthopedic Assessment
+  // Step 4 State
   const [orthopedicTests, setOrthopedicTests] = useState<OrthopedicTestItem[]>(() =>
     createDefaultOrthopedicTests()
   );
   const [activeJointTab, setActiveJointTab] = useState<OrthopedicJoint>('Joelho');
 
-  // Real-time computed functional metrics
+  useEffect(() => {
+    if (!editId) return;
+
+    const populateFromAthlete = (
+      existing: NonNullable<ReturnType<typeof getAthleteById>>
+    ) => {
+      setName(existing.name);
+      setAge(existing.age);
+      setWeight(existing.weight);
+      setHeight(existing.height);
+      setDominance(existing.dominance);
+      setMainSport(existing.mainSport);
+      setMainSportFrequency(existing.mainSportFrequency);
+      setSessionDurationMinutes(existing.sessionDurationMinutes);
+      setCompetitiveLevel(existing.competitiveLevel);
+      setHasExtraActivity(existing.hasExtraActivity);
+      setExtraActivities(existing.extraActivities);
+      setInjuries(existing.injuries);
+      setHopTestRightCm(existing.functional.hopTestRightCm);
+      setHopTestLeftCm(existing.functional.hopTestLeftCm);
+      setYBalanceRightCm(existing.functional.yBalanceRightCm);
+      setYBalanceLeftCm(existing.functional.yBalanceLeftCm);
+      setLungeTestRightCm(existing.functional.lungeTestRightCm);
+      setLungeTestLeftCm(existing.functional.lungeTestLeftCm);
+      setPlankTimeSeconds(existing.functional.plankTimeSeconds);
+      setFunctionalNotes(existing.functional.functionalNotes);
+      if (existing.orthopedic.tests.length > 0) {
+        setOrthopedicTests(existing.orthopedic.tests);
+      }
+    };
+
+    const cached = getAthleteById(editId);
+    if (cached) {
+      populateFromAthlete(cached);
+    } else {
+      setLoadingEditData(true);
+      getAthleteByIdAction(editId)
+        .then((dbRecord) => {
+          if (dbRecord) populateFromAthlete(dbRecord);
+        })
+        .finally(() => setLoadingEditData(false));
+    }
+  }, [editId, getAthleteById]);
+
   const hopLSI = useMemo(
     () => calculateLSI(hopTestRightCm, hopTestLeftCm),
     [hopTestRightCm, hopTestLeftCm]
@@ -191,7 +224,6 @@ export default function NovaAvaliacaoPage() {
     [lungeTestRightCm, lungeTestLeftCm]
   );
 
-  // Live Clinical Summary Preview
   const livePreviewAthlete = useMemo(() => {
     const functional = computeFunctionalMetrics({
       yBalanceRightCm,
@@ -249,7 +281,6 @@ export default function NovaAvaliacaoPage() {
     orthopedicTests,
   ]);
 
-  // Handlers for Step 1 Extra Activities
   const handleAddExtraActivity = () => {
     if (!newExtraName.trim()) return;
     setExtraActivities((prev) => [
@@ -264,7 +295,6 @@ export default function NovaAvaliacaoPage() {
     setExtraActivities((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // Handlers for Step 2 Injury Records
   const handleAddInjury = () => {
     const desc =
       draftDescription.trim() || `${draftType} em ${draftRegion} (${draftSide})`;
@@ -286,7 +316,6 @@ export default function NovaAvaliacaoPage() {
     setInjuries((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // Handlers for Step 4 Orthopedic Tests
   const updateOrthoTest = (
     id: string,
     updates: Partial<Pick<OrthopedicTestItem, 'result' | 'side' | 'painNotes'>>
@@ -296,7 +325,6 @@ export default function NovaAvaliacaoPage() {
     );
   };
 
-  // Quick Demo Fill Preset for Live Presentation
   const handleFillDemoPreset = (presetType: 'apto' | 'risco') => {
     if (presetType === 'apto') {
       setName('Beatriz Vasconcelos');
@@ -319,7 +347,7 @@ export default function NovaAvaliacaoPage() {
           type: 'Lesão',
           bodyRegion: 'Tornozelo/Pé',
           side: 'Direito',
-          description: 'Entorse leve de tornozelo (Grau I) totalmente reabilitada',
+          description: 'Entorse leve de tornozelo (Grau I) reabilitada',
           occurredAt: '11/2025',
           recoveryStatus: 'Recuperado totalmente',
           currentPainEVA: 0,
@@ -333,7 +361,7 @@ export default function NovaAvaliacaoPage() {
       setLungeTestLeftCm(12.5);
       setPlankTimeSeconds(135);
       setFunctionalNotes(
-        'Excelente alinhamento biomecânico na aterrissagem unipodal, LSI de 98.3% e estabilidade lombopélvica acima da média.'
+        'Alinhamento biomecânico adequado na aterrissagem unipodal, LSI de 98.3% e estabilidade lombopélvica preservada.'
       );
       setOrthopedicTests(createDefaultOrthopedicTests());
     } else {
@@ -361,7 +389,7 @@ export default function NovaAvaliacaoPage() {
         },
       ]);
       setHopTestRightCm(195);
-      setHopTestLeftCm(160); // 82.1% LSI
+      setHopTestLeftCm(160);
       setYBalanceRightCm(99);
       setYBalanceLeftCm(90);
       setLungeTestRightCm(12.5);
@@ -385,9 +413,8 @@ export default function NovaAvaliacaoPage() {
     }
   };
 
-  // Final Submit
-  const handleFinishAssessment = () => {
-    const created = addAthlete({
+  const handleFinishAssessment = async () => {
+    const payload = {
       name: name.trim() || 'Atleta Avaliado',
       age,
       weight,
@@ -402,56 +429,62 @@ export default function NovaAvaliacaoPage() {
       injuries,
       functional: livePreviewAthlete.functional,
       orthopedic: { tests: orthopedicTests },
-    });
+    };
 
-    router.push(`/atleta/${created.id}`);
+    if (editId) {
+      const updated = await updateAthlete(editId, payload);
+      router.push(`/atleta/${updated.id}`);
+    } else {
+      const created = await addAthlete(payload);
+      router.push(`/atleta/${created.id}`);
+    }
   };
 
-  const getEvaColor = (eva: number) => {
-    if (eva <= 2) return 'text-emerald-600 bg-emerald-50 border-emerald-200';
-    if (eva <= 5) return 'text-amber-600 bg-amber-50 border-amber-200';
-    return 'text-rose-600 bg-rose-50 border-rose-200';
-  };
+  if (loadingEditData) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="flex items-center gap-3 text-[#496558] text-xs font-medium">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Carregando dados do banco SQLite...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 pb-16">
-      {/* Top Bar & Quick Presets for Live Demo */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+    <div className="space-y-6 pb-12">
+      {/* Header Row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-teal-600">
-            Protocolo de Avaliação Pré-Participação (APP)
-          </span>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-            Nova Avaliação Fisioterapêutica Esportiva
+          <p className="text-xs font-medium text-[#5A6E65]">
+            {editId ? 'Atualização de Prontuário' : 'Avaliação Pré-Participação (APP)'}
+          </p>
+          <h1 className="text-2xl sm:text-[28px] font-semibold tracking-tight text-[#0F241C]">
+            {editId ? `Editar — ${name || 'Atleta'}` : 'Nova Avaliação Clínica'}
           </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => handleFillDemoPreset('apto')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors"
-            title="Preenche automaticamente um caso de atleta com alta esportiva (Baixo Risco)"
+            className="px-3.5 py-2 rounded-xl text-xs font-medium bg-[#DCECE3] hover:bg-[#CBE0D4] text-[#0F241C] transition-colors"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Demo: Atleta Apto (LSI 98%)</span>
+            Preencher Caso Apto (98%)
           </button>
           <button
             type="button"
             onClick={() => handleFillDemoPreset('risco')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors"
-            title="Preenche automaticamente um caso de atleta com assimetria e risco aumentado"
+            className="px-3.5 py-2 rounded-xl text-xs font-medium bg-white hover:bg-neutral-50 text-[#9E2A2B] border border-[#E6ECE8] transition-colors"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Demo: Atleta em Risco (LSI 82%)</span>
+            Preencher Caso Alerta (82%)
           </button>
         </div>
       </div>
 
-      {/* Stepper Navigation Header */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Minimalist Numbered Stepper */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         {STEPS.map((step) => {
-          const StepIcon = step.icon;
           const isCurrent = currentStep === step.number;
           const isCompleted = currentStep > step.number;
 
@@ -461,100 +494,95 @@ export default function NovaAvaliacaoPage() {
               type="button"
               onClick={() => setCurrentStep(step.number)}
               className={cn(
-                'text-left p-4 rounded-2xl border transition-all flex items-start gap-3.5',
+                'text-left p-4 rounded-[20px] border transition-all flex items-center justify-between',
                 isCurrent
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/10'
+                  ? 'bg-[#0F241C] text-white border-[#0F241C] shadow-md'
                   : isCompleted
-                  ? 'bg-teal-50/70 border-teal-200 text-slate-900 hover:bg-teal-50'
-                  : 'bg-white border-slate-200/80 text-slate-500 hover:bg-slate-50'
+                  ? 'bg-[#DCECE3] border-[#CBE0D4] text-[#0F241C]'
+                  : 'bg-white border-[#E6ECE8] text-[#6B7E75] hover:bg-white/80'
               )}
             >
-              <div
-                className={cn(
-                  'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm transition-colors',
-                  isCurrent
-                    ? 'bg-teal-500 text-slate-950'
-                    : isCompleted
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-slate-100 text-slate-500'
-                )}
-              >
-                {isCompleted ? <Check className="w-4 h-4" /> : <StepIcon className="w-4 h-4" />}
-              </div>
-              <div className="min-w-0">
+              <div className="min-w-0 pr-2">
                 <p
                   className={cn(
-                    'text-[11px] font-semibold uppercase tracking-wider',
+                    'text-[10px] font-medium uppercase tracking-widest',
                     isCurrent
-                      ? 'text-teal-400'
+                      ? 'text-emerald-400'
                       : isCompleted
-                      ? 'text-teal-700'
-                      : 'text-slate-400'
+                      ? 'text-[#1F7A46]'
+                      : 'text-[#8A9B93]'
                   )}
                 >
-                  Passo {step.number} de 4
+                  Etapa {step.code}
                 </p>
-                <p
-                  className={cn(
-                    'font-bold text-sm truncate',
-                    isCurrent ? 'text-white' : 'text-slate-800'
-                  )}
-                >
+                <p className="font-semibold text-sm truncate mt-0.5">
                   {step.title}
                 </p>
                 <p
                   className={cn(
-                    'text-xs truncate hidden sm:block',
-                    isCurrent ? 'text-slate-300' : 'text-slate-500'
+                    'text-[11px] truncate hidden sm:block',
+                    isCurrent ? 'text-white/60' : 'text-[#6B7E75]'
                   )}
                 >
                   {step.subtitle}
                 </p>
+              </div>
+
+              <div
+                className={cn(
+                  'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0',
+                  isCurrent
+                    ? 'bg-[#22C55E] text-[#0B1913]'
+                    : isCompleted
+                    ? 'bg-[#0F241C] text-white'
+                    : 'bg-[#F3F6F4] text-[#8A9B93]'
+                )}
+              >
+                {isCompleted ? <Check className="w-3.5 h-3.5" /> : step.code}
               </div>
             </button>
           );
         })}
       </div>
 
-      {/* Step Content Area */}
+      {/* Step Content */}
       <AnimatePresence mode="wait">
-        {/* PASSO 1: IDENTIFICAÇÃO E ROTINA ESPORTIVA */}
+        {/* STEP 1 */}
         {currentStep === 1 && (
           <motion.div
             key="step-1"
-            initial={{ opacity: 0, x: 15 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -15 }}
-            transition={{ duration: 0.22 }}
-            className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-5"
           >
-            {/* Dados Pessoais e Antropometria */}
-            <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-6">
-              <div className="border-b border-slate-100 pb-4">
-                <h2 className="text-lg font-bold text-slate-900">
-                  1. Identificação & Perfil Antropométrico
+            <div className="lg:col-span-8 card-surface p-6 space-y-6">
+              <div>
+                <h2 className="text-base font-semibold text-[#0F241C]">
+                  Dados do Atleta e Modalidade Principal
                 </h2>
-                <p className="text-xs text-slate-500">
-                  Dados cadastrais básicos, dominância motora e modalidade esportiva principal
+                <p className="text-xs text-[#6B7E75]">
+                  Informações antropométricas, dominância motora e frequência semanal
                 </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                    Nome Completo do Atleta *
+                  <label className="block text-xs font-medium text-[#496558] mb-1.5">
+                    Nome Completo do Atleta
                   </label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ex: Gabriel Medina, Beatriz Souza..."
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-sm font-medium"
+                    placeholder="Ex: Lucas Mendes, Mariana Costa..."
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#F4F7F5] focus:bg-white border border-transparent focus:border-[#0F241C] outline-none text-sm font-medium text-[#0F241C] transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                  <label className="block text-xs font-medium text-[#496558] mb-1.5">
                     Idade (anos)
                   </label>
                   <input
@@ -563,13 +591,13 @@ export default function NovaAvaliacaoPage() {
                     max={80}
                     value={age}
                     onChange={(e) => setAge(Number(e.target.value))}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-teal-500 outline-none text-sm font-medium"
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#F4F7F5] focus:bg-white border border-transparent focus:border-[#0F241C] outline-none text-sm font-medium"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                    Dominância de Membro
+                  <label className="block text-xs font-medium text-[#496558] mb-1.5">
+                    Dominância Motora
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['Destro', 'Canhoto', 'Ambidestro'] as Dominance[]).map((dom) => (
@@ -578,10 +606,10 @@ export default function NovaAvaliacaoPage() {
                         type="button"
                         onClick={() => setDominance(dom)}
                         className={cn(
-                          'py-2.5 px-3 rounded-xl text-xs font-semibold border transition-all',
+                          'py-2.5 px-3 rounded-xl text-xs font-medium transition-all',
                           dominance === dom
-                            ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-[#0F241C] text-white'
+                            : 'bg-[#F4F7F5] text-[#496558] hover:bg-[#E6F0EB]'
                         )}
                       >
                         {dom}
@@ -591,74 +619,73 @@ export default function NovaAvaliacaoPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                  <label className="block text-xs font-medium text-[#496558] mb-1.5">
                     Massa Corporal (kg)
                   </label>
-                  <div className="relative">
-                    <Scale className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={weight}
-                      onChange={(e) => setWeight(Number(e.target.value))}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-teal-500 outline-none text-sm font-medium"
-                    />
-                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={weight}
+                    onChange={(e) => setWeight(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#F4F7F5] focus:bg-white border border-transparent focus:border-[#0F241C] outline-none text-sm font-medium"
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                  <label className="block text-xs font-medium text-[#496558] mb-1.5">
                     Estatura (cm)
                   </label>
-                  <div className="relative">
-                    <Ruler className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="number"
-                      value={height}
-                      onChange={(e) => setHeight(Number(e.target.value))}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-teal-500 outline-none text-sm font-medium"
-                    />
-                  </div>
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#F4F7F5] focus:bg-white border border-transparent focus:border-[#0F241C] outline-none text-sm font-medium"
+                  />
                 </div>
               </div>
 
-              {/* Seleção Visual do Esporte Principal */}
-              <div className="pt-2 space-y-3">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                  Esporte / Modalidade Principal
+              {/* Clean Sport Selection Pills (Zero Emojis) */}
+              <div className="space-y-2.5">
+                <label className="block text-xs font-medium text-[#496558]">
+                  Esporte Principal
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {SPORTS_OPTIONS.map((sport) => {
-                    const selected = mainSport === sport.name;
+                    const selected = mainSport === sport;
                     return (
                       <button
-                        key={sport.name}
+                        key={sport}
                         type="button"
-                        onClick={() => setMainSport(sport.name)}
+                        onClick={() => setMainSport(sport)}
                         className={cn(
-                          'p-3 rounded-xl border text-left transition-all flex items-center gap-2.5',
+                          'py-2.5 px-3.5 rounded-xl text-xs font-medium text-left transition-all flex items-center justify-between',
                           selected
-                            ? 'bg-teal-50/90 border-teal-500 text-teal-950 ring-2 ring-teal-500/20'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            ? 'bg-[#0F241C] text-white shadow-sm'
+                            : 'bg-[#F4F7F5] text-[#3E5249] hover:bg-[#E6F0EB]'
                         )}
                       >
-                        <span className="text-xl">{sport.emoji}</span>
-                        <span className="text-xs font-bold truncate">{sport.name}</span>
+                        <span className="truncate">{sport}</span>
+                        <span
+                          className={cn(
+                            'w-1.5 h-1.5 rounded-full shrink-0',
+                            selected ? 'bg-[#22C55E]' : 'bg-transparent'
+                          )}
+                        />
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Frequência Semanal, Duração e Nível Competitivo */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                <div className="sm:col-span-2 bg-slate-50 p-4 rounded-2xl border border-slate-200/70 space-y-2">
+              {/* Weekly Frequency & Duration */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-2 bg-[#F4F7F5] p-4 rounded-2xl space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+                    <label className="text-xs font-medium text-[#496558]">
                       Frequência Semanal no Esporte
                     </label>
-                    <span className="px-2.5 py-0.5 rounded-full bg-teal-600 text-white text-xs font-bold">
-                      {mainSportFrequency}x por semana
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#0F241C] text-white text-xs font-semibold">
+                      {mainSportFrequency}x / semana
                     </span>
                   </div>
                   <input
@@ -667,19 +694,19 @@ export default function NovaAvaliacaoPage() {
                     max={7}
                     value={mainSportFrequency}
                     onChange={(e) => setMainSportFrequency(Number(e.target.value))}
-                    className="w-full accent-teal-600 cursor-pointer"
+                    className="w-full accent-[#0F241C] cursor-pointer"
                   />
-                  <div className="flex justify-between text-[11px] text-slate-400 font-medium">
-                    <span>1x/sem</span>
-                    <span>3x/sem</span>
-                    <span>5x/sem</span>
-                    <span>7x/sem (Diário)</span>
+                  <div className="flex justify-between text-[11px] text-[#7A8C84]">
+                    <span>1x</span>
+                    <span>3x</span>
+                    <span>5x</span>
+                    <span>7x</span>
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/70 space-y-1.5">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                    Duração da Sessão (min)
+                <div className="bg-[#F4F7F5] p-4 rounded-2xl space-y-1.5">
+                  <label className="block text-xs font-medium text-[#496558]">
+                    Sessão (min)
                   </label>
                   <input
                     type="number"
@@ -688,19 +715,19 @@ export default function NovaAvaliacaoPage() {
                     max={240}
                     value={sessionDurationMinutes}
                     onChange={(e) => setSessionDurationMinutes(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-bold text-slate-800"
+                    className="w-full px-3 py-2 rounded-xl bg-white text-sm font-semibold text-[#0F241C] outline-none"
                   />
-                  <p className="text-[11px] text-slate-500">
-                    Volume: ~{((mainSportFrequency * sessionDurationMinutes) / 60).toFixed(1)}h/sem
+                  <p className="text-[11px] text-[#7A8C84]">
+                    ~{((mainSportFrequency * sessionDurationMinutes) / 60).toFixed(1)}h/sem
                   </p>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-2">
+                <label className="block text-xs font-medium text-[#496558] mb-2">
                   Nível Competitivo
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2.5">
                   {(['Amador', 'Semiprofissional', 'Profissional'] as CompetitiveLevel[]).map(
                     (lvl) => (
                       <button
@@ -708,10 +735,10 @@ export default function NovaAvaliacaoPage() {
                         type="button"
                         onClick={() => setCompetitiveLevel(lvl)}
                         className={cn(
-                          'py-2.5 px-3 rounded-xl text-xs font-semibold border transition-all',
+                          'py-2.5 px-3 rounded-xl text-xs font-medium transition-all',
                           competitiveLevel === lvl
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                            ? 'bg-[#0F241C] text-white'
+                            : 'bg-[#F4F7F5] text-[#496558] hover:bg-[#E6F0EB]'
                         )}
                       >
                         {lvl}
@@ -722,42 +749,37 @@ export default function NovaAvaliacaoPage() {
               </div>
             </div>
 
-            {/* Coluna Direita Passo 1: Atividades Complementares */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-6">
+            {/* Right 4 Cols: Complementary Activities (Soft Sage Card) */}
+            <div className="lg:col-span-4 rounded-[24px] bg-[#DCECE3] border border-[#CBE0D4] p-6 flex flex-col justify-between space-y-6">
               <div className="space-y-4">
-                <div className="border-b border-slate-100 pb-4">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                    Prevenção & Preparação Física
-                  </span>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Atividades Complementares
+                <div>
+                  <p className="text-[11px] font-medium text-[#1F7A46]">
+                    Preparação Complementar
+                  </p>
+                  <h3 className="text-base font-semibold text-[#0F241C]">
+                    Atividades Extras
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    O atleta realiza treino de força ou controle motor além do esporte principal?
+                  <p className="text-xs text-[#496558] mt-0.5">
+                    Pratica musculação, pilates ou controle motor além do esporte?
                   </p>
                 </div>
 
-                {/* Toggle Switch */}
-                <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">
-                      Pratica outra atividade?
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Ex: Musculação, Pilates, Funcional
-                    </p>
-                  </div>
+                {/* Toggle */}
+                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 backdrop-blur-md">
+                  <span className="text-xs font-semibold text-[#0F241C]">
+                    Pratica outra atividade?
+                  </span>
                   <button
                     type="button"
                     onClick={() => setHasExtraActivity(!hasExtraActivity)}
                     className={cn(
-                      'relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out',
-                      hasExtraActivity ? 'bg-teal-600' : 'bg-slate-300'
+                      'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                      hasExtraActivity ? 'bg-[#0F241C]' : 'bg-[#B7C9BF]'
                     )}
                   >
                     <span
                       className={cn(
-                        'pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                        'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white transition',
                         hasExtraActivity ? 'translate-x-5' : 'translate-x-0'
                       )}
                     />
@@ -765,62 +787,55 @@ export default function NovaAvaliacaoPage() {
                 </div>
 
                 {hasExtraActivity ? (
-                  <div className="space-y-4">
-                    <div className="p-3.5 rounded-xl bg-teal-50/60 border border-teal-200/70 space-y-3">
-                      <p className="text-xs font-semibold text-teal-900">
-                        Adicionar Atividade Complementar
-                      </p>
+                  <div className="space-y-3">
+                    <div className="p-3.5 rounded-2xl bg-white/85 space-y-2.5">
                       <input
                         type="text"
                         value={newExtraName}
                         onChange={(e) => setNewExtraName(e.target.value)}
-                        placeholder="Ex: Musculação, Pilates, Mobilidade..."
-                        className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs font-medium outline-none focus:border-teal-500"
+                        placeholder="Ex: Musculação, Pilates..."
+                        className="w-full px-3 py-2 rounded-xl bg-[#F4F7F5] text-xs font-medium outline-none"
                       />
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-xs text-slate-700">
-                          <span>Frequência:</span>
-                          <select
-                            value={newExtraFreq}
-                            onChange={(e) => setNewExtraFreq(Number(e.target.value))}
-                            className="px-2 py-1 rounded-lg bg-white border border-slate-200 font-semibold"
-                          >
-                            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-                              <option key={n} value={n}>
-                                {n}x/sem
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        <select
+                          value={newExtraFreq}
+                          onChange={(e) => setNewExtraFreq(Number(e.target.value))}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#F4F7F5] text-xs font-semibold text-[#0F241C]"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                            <option key={n} value={n}>
+                              {n}x / semana
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
                           onClick={handleAddExtraActivity}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold transition-colors"
+                          className="px-3 py-1.5 rounded-lg bg-[#0F241C] text-white text-xs font-medium"
                         >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Adicionar</span>
+                          Adicionar
                         </button>
                       </div>
                     </div>
 
-                    {/* Lista de atividades extras adicionadas */}
                     <div className="space-y-2">
                       {extraActivities.map((act, index) => (
                         <div
                           key={index}
-                          className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                          className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/75 text-xs"
                         >
-                          <div className="flex items-center gap-2">
-                            <Dumbbell className="w-4 h-4 text-teal-600" />
-                            <span className="font-bold text-slate-800">{act.activityName}</span>
-                            <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 font-semibold">
-                              {act.weeklyFrequency}x/semana
+                          <div>
+                            <span className="font-semibold text-[#0F241C]">
+                              {act.activityName}
+                            </span>
+                            <span className="ml-2 text-[#1F7A46] font-medium">
+                              {act.weeklyFrequency}x/sem
                             </span>
                           </div>
                           <button
                             type="button"
                             onClick={() => handleRemoveExtraActivity(index)}
-                            className="text-slate-400 hover:text-rose-600 p-1"
+                            className="text-[#7A8C84] hover:text-[#9E2A2B]"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -829,35 +844,31 @@ export default function NovaAvaliacaoPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-1">
-                    <p className="font-bold flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>Atenção à Carga Isolada</span>
-                    </p>
-                    <p>
-                      Atletas com alta frequência semanal ({mainSportFrequency}x/sem) sem trabalho
-                      complementar de força apresentam maior risco de sobrecarga tendínea e articular.
-                    </p>
+                  <div className="p-4 rounded-2xl bg-white/75 text-xs text-[#496558] leading-relaxed">
+                    Volume elevado no esporte principal ({mainSportFrequency}x/sem) sem treino de
+                    força complementar eleva o risco de sobrecarga tendínea.
                   </div>
                 )}
               </div>
 
-              {/* IMC & Resumo de Carga */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">IMC Estimado:</span>
-                  <span className="font-bold text-teal-400">
-                    {height > 0 ? (weight / Math.pow(height / 100, 2)).toFixed(1) : '--'} kg/m²
+              <div className="p-4 rounded-2xl bg-[#0F241C] text-white space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-white/60">IMC Calculado</span>
+                  <span className="font-semibold text-emerald-400">
+                    {height > 0
+                      ? (weight / Math.pow(height / 100, 2)).toFixed(1)
+                      : '--'}{' '}
+                    kg/m²
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Total de Sessões Semanais:</span>
-                  <span className="font-bold text-white">
+                <div className="flex justify-between">
+                  <span className="text-white/60">Sessões Totais</span>
+                  <span className="font-semibold">
                     {mainSportFrequency +
                       (hasExtraActivity
                         ? extraActivities.reduce((a, b) => a + b.weeklyFrequency, 0)
                         : 0)}{' '}
-                    sessões/sem
+                    / semana
                   </span>
                 </div>
               </div>
@@ -865,17 +876,16 @@ export default function NovaAvaliacaoPage() {
           </motion.div>
         )}
 
-        {/* PASSO 2: HISTÓRICO DE LESÕES E MAPA CORPORAL INTERATIVO */}
+        {/* STEP 2 */}
         {currentStep === 2 && (
           <motion.div
             key="step-2"
-            initial={{ opacity: 0, x: 15 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -15 }}
-            transition={{ duration: 0.22 }}
-            className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-5"
           >
-            {/* Interactive Body Map SVG (5 columns) */}
             <div className="lg:col-span-5">
               <InteractiveBodyMap
                 selectedRegion={draftRegion}
@@ -888,28 +898,26 @@ export default function NovaAvaliacaoPage() {
               />
             </div>
 
-            {/* Injury Form & Registered List (7 columns) */}
             <div className="lg:col-span-7 space-y-5">
-              <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="card-surface p-6 space-y-5">
+                <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-lg font-bold text-slate-900">
-                      2. Registrar Lesão Prévia, Queixa ou Cirurgia
+                    <h2 className="text-base font-semibold text-[#0F241C]">
+                      Histórico de Lesões e Cirurgias
                     </h2>
-                    <p className="text-xs text-slate-500">
-                      Clique no Mapa Anatômico ao lado ou selecione abaixo para adicionar ao prontuário
+                    <p className="text-xs text-[#6B7E75]">
+                      Selecione a região no mapa ao lado e registre ocorrências prévias ou atuais
                     </p>
                   </div>
-                  <span className="px-3 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 text-xs font-bold">
+                  <span className="px-3 py-1 rounded-full bg-[#DCECE3] text-[#0F241C] text-xs font-semibold">
                     {draftRegion} ({draftSide})
                   </span>
                 </div>
 
-                {/* Tipo + Lado + Data */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                      Natureza do Evento
+                    <label className="block text-xs font-medium text-[#496558] mb-1">
+                      Evento
                     </label>
                     <div className="grid grid-cols-2 gap-1.5">
                       {(['Lesão', 'Cirurgia'] as const).map((t) => (
@@ -918,10 +926,10 @@ export default function NovaAvaliacaoPage() {
                           type="button"
                           onClick={() => setDraftType(t)}
                           className={cn(
-                            'py-2 rounded-xl text-xs font-bold border transition-all',
+                            'py-2 rounded-xl text-xs font-medium transition-all',
                             draftType === t
-                              ? 'bg-slate-900 text-white border-slate-900'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
+                              ? 'bg-[#0F241C] text-white'
+                              : 'bg-[#F4F7F5] text-[#496558]'
                           )}
                         >
                           {t}
@@ -931,204 +939,159 @@ export default function NovaAvaliacaoPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                      Lado Acometido
+                    <label className="block text-xs font-medium text-[#496558] mb-1">
+                      Lado
                     </label>
                     <div className="grid grid-cols-2 gap-1.5">
-                      {(['Direito', 'Esquerdo', 'Bilateral', 'N/A'] as BodySide[]).map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setDraftSide(s)}
-                          className={cn(
-                            'py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all',
-                            draftSide === s
-                              ? 'bg-teal-600 text-white border-teal-600'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                          )}
-                        >
-                          {s}
-                        </button>
-                      ))}
+                      {(['Direito', 'Esquerdo', 'Bilateral', 'N/A'] as BodySide[]).map(
+                        (s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setDraftSide(s)}
+                            className={cn(
+                              'py-1.5 px-2 rounded-lg text-xs font-medium transition-all',
+                              draftSide === s
+                                ? 'bg-[#0F241C] text-white'
+                                : 'bg-[#F4F7F5] text-[#496558]'
+                            )}
+                          >
+                            {s}
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                      Época (Mês/Ano)
+                    <label className="block text-xs font-medium text-[#496558] mb-1">
+                      Período
                     </label>
                     <input
                       type="text"
                       value={draftOccurredAt}
                       onChange={(e) => setDraftOccurredAt(e.target.value)}
-                      placeholder="Ex: 02/2026 ou Há 6 meses"
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-medium outline-none focus:border-teal-500"
+                      placeholder="Ex: 02/2026"
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#F4F7F5] text-xs font-medium outline-none"
                     />
                   </div>
                 </div>
 
-                {/* Descrição + Sugestões Rápidas da Região Selecionada */}
                 <div className="space-y-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                    Diagnóstico Clínico / Descrição da Lesão ({draftRegion})
+                  <label className="block text-xs font-medium text-[#496558]">
+                    Descrição Clínica ({draftRegion})
                   </label>
                   <input
                     type="text"
                     value={draftDescription}
                     onChange={(e) => setDraftDescription(e.target.value)}
-                    placeholder={`Ex: ${QUICK_INJURY_PRESETS[draftRegion][0]}...`}
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium outline-none focus:border-teal-500"
+                    placeholder={`Ex: ${QUICK_INJURY_PRESETS[draftRegion][0]}`}
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#F4F7F5] text-sm font-medium outline-none"
                   />
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] text-slate-400 font-medium mr-1">
-                      Sugestões rápidas:
-                    </span>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
                     {QUICK_INJURY_PRESETS[draftRegion].map((preset) => (
                       <button
                         key={preset}
                         type="button"
                         onClick={() => setDraftDescription(preset)}
-                        className="text-[11px] px-2.5 py-1 rounded-full bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 font-medium transition-colors"
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-[#F4F7F5] hover:bg-[#DCECE3] text-[#3E5249] transition-colors"
                       >
-                        + {preset}
+                        {preset}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Status de Recuperação */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                    Status Funcional Atual
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {(
-                      [
-                        'Recuperado totalmente',
-                        'Desconforto ocasional',
-                        'Em reabilitação',
-                      ] as RecoveryStatus[]
-                    ).map((st) => (
-                      <button
-                        key={st}
-                        type="button"
-                        onClick={() => setDraftRecovery(st)}
-                        className={cn(
-                          'py-2 px-3 rounded-xl text-xs font-semibold border transition-all',
-                          draftRecovery === st
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        )}
-                      >
-                        {st}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Escala Visual Analógica de Dor (EVA 0 - 10) */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                      Escala Visual Analógica de Dor Atual (EVA 0 a 10)
-                    </label>
-                    <span
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {(
+                    [
+                      'Recuperado totalmente',
+                      'Desconforto ocasional',
+                      'Em reabilitação',
+                    ] as RecoveryStatus[]
+                  ).map((st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setDraftRecovery(st)}
                       className={cn(
-                        'px-3 py-0.5 rounded-full text-xs font-bold border',
-                        getEvaColor(draftPainEVA)
+                        'py-2 px-3 rounded-xl text-xs font-medium transition-all',
+                        draftRecovery === st
+                          ? 'bg-[#0F241C] text-white'
+                          : 'bg-[#F4F7F5] text-[#496558]'
                       )}
                     >
-                      EVA: {draftPainEVA} / 10 —{' '}
-                      {draftPainEVA === 0
-                        ? 'Sem Dor'
-                        : draftPainEVA <= 3
-                        ? 'Dor Leve'
-                        : draftPainEVA <= 6
-                        ? 'Dor Moderada'
-                        : 'Dor Intensa'}
+                      {st}
+                    </button>
+                  ))}
+                </div>
+
+                {/* EVA Pain Scale */}
+                <div className="p-4 rounded-2xl bg-[#F4F7F5] space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-[#496558]">
+                      Escala Visual Analógica de Dor (EVA)
+                    </span>
+                    <span className="font-semibold text-[#0F241C]">
+                      {draftPainEVA} / 10
                     </span>
                   </div>
-
                   <input
                     type="range"
                     min={0}
                     max={10}
                     value={draftPainEVA}
                     onChange={(e) => setDraftPainEVA(Number(e.target.value))}
-                    className="w-full cursor-pointer accent-teal-600"
+                    className="w-full cursor-pointer accent-[#0F241C]"
                   />
-
-                  <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider">
-                    <span className="text-emerald-600">0 (Ausência de dor)</span>
-                    <span className="text-amber-600">5 (Moderada)</span>
-                    <span className="text-rose-600">10 (Máxima suportável)</span>
-                  </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={handleAddInjury}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all"
+                  className="w-full py-3 rounded-xl bg-[#0F241C] hover:bg-[#173529] text-white font-medium text-xs flex items-center justify-center gap-2 transition-all"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Adicionar ao Histórico Clínico do Atleta</span>
+                  <span>Adicionar Registro ao Histórico</span>
                 </button>
               </div>
 
-              {/* Lista de Lesões Adicionadas */}
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm space-y-3">
+              {/* Registered Injuries */}
+              <div className="card-surface p-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Histórico Registrado ({injuries.length})
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6B7E75]">
+                    Registros Adicionados ({injuries.length})
                   </h3>
-                  {injuries.length === 0 && (
-                    <span className="text-xs text-emerald-600 font-medium">
-                      Nenhuma lesão registrada (Atleta assintomático)
-                    </span>
-                  )}
                 </div>
 
-                {injuries.length > 0 && (
-                  <div className="space-y-2.5">
+                {injuries.length === 0 ? (
+                  <p className="text-xs text-[#6B7E75]">
+                    Nenhuma lesão prévia registrada até o momento.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
                     {injuries.map((inj) => (
                       <div
                         key={inj.id}
-                        className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs"
+                        className="flex items-center justify-between p-3.5 rounded-xl bg-[#F4F7F5] text-xs"
                       >
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={cn(
-                                'px-2 py-0.5 rounded font-bold text-[10px] uppercase',
-                                inj.type === 'Cirurgia'
-                                  ? 'bg-purple-100 text-purple-800'
-                                  : 'bg-teal-100 text-teal-800'
-                              )}
-                            >
-                              {inj.type}
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-[#0F241C]">
+                              {inj.type}: {inj.bodyRegion} ({inj.side})
                             </span>
-                            <span className="font-bold text-slate-900">
-                              {inj.bodyRegion} ({inj.side})
-                            </span>
-                            <span className="text-slate-400">• {inj.occurredAt}</span>
-                            <span
-                              className={cn(
-                                'px-2 py-0.5 rounded-full font-bold border',
-                                getEvaColor(inj.currentPainEVA)
-                              )}
-                            >
+                            <span className="text-[#7A8C84]">• {inj.occurredAt}</span>
+                            <span className="px-2 py-0.5 rounded bg-white text-[#0F241C] font-medium">
                               EVA {inj.currentPainEVA}/10
                             </span>
                           </div>
-                          <p className="text-slate-700 font-medium">{inj.description}</p>
-                          <p className="text-[11px] text-slate-500">Status: {inj.recoveryStatus}</p>
+                          <p className="text-[#496558]">{inj.description}</p>
                         </div>
 
                         <button
                           type="button"
                           onClick={() => handleRemoveInjury(inj.id)}
-                          className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                          title="Remover registro"
+                          className="p-1.5 text-[#7A8C84] hover:text-[#9E2A2B]"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1141,317 +1104,218 @@ export default function NovaAvaliacaoPage() {
           </motion.div>
         )}
 
-        {/* PASSO 3: TESTES FUNCIONAIS COM CÁLCULOS EM TEMPO REAL */}
+        {/* STEP 3 */}
         {currentStep === 3 && (
           <motion.div
             key="step-3"
-            initial={{ opacity: 0, x: 15 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -15 }}
-            transition={{ duration: 0.22 }}
-            className="space-y-6"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-5"
           >
-            {/* Real-Time LSI Banner */}
-            <div
-              className={cn(
-                'rounded-2xl p-5 border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all',
-                hopLSI >= 90
-                  ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
-                  : 'bg-rose-50/90 border-rose-300 text-rose-950'
-              )}
-            >
-              <div className="flex items-start gap-3.5">
-                <div
-                  className={cn(
-                    'w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 font-bold',
-                    hopLSI >= 90
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-rose-600 text-white animate-pulse'
-                  )}
-                >
-                  {hopLSI >= 90 ? (
-                    <CheckCircle2 className="w-6 h-6" />
-                  ) : (
-                    <AlertOctagon className="w-6 h-6" />
-                  )}
+            {/* Dark Forest Real-Time LSI Callout Card */}
+            <div className="rounded-[24px] bg-[#0F241C] text-white p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xs text-white/60">
+                    Índice de Simetria entre Membros (LSI)
+                  </span>
+                  <span
+                    className={cn(
+                      'px-2.5 py-0.5 rounded-full text-[11px] font-medium',
+                      hopLSI >= 90
+                        ? 'bg-[#22C55E]/20 text-[#4ADE80]'
+                        : 'bg-[#E05A47]/25 text-[#FCA5A5]'
+                    )}
+                  >
+                    {hopLSI >= 90
+                      ? 'Simetria Adequada (≥ 90%)'
+                      : 'Déficit Funcional Detectado (< 90%)'}
+                  </span>
                 </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider">
-                      Índice de Simetria entre Membros (LSI) em Tempo Real
-                    </span>
-                    <span
-                      className={cn(
-                        'px-2.5 py-0.5 rounded-full text-xs font-bold',
-                        hopLSI >= 90
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-rose-600 text-white'
-                      )}
-                    >
-                      {hopLSI >= 90
-                        ? 'Simetria Adequada — Alta Esportiva (≥ 90%)'
-                        : 'Déficit Funcional Detectado — Risco Aumentado (< 90%)'}
-                    </span>
-                  </div>
-                  <p className="text-xs mt-1 opacity-85">
-                    Fórmula clínica: <strong>(Menor Alcance / Maior Alcance) × 100</strong>. Meta de
-                    segurança na literatura para Return-to-Sport: LSI ≥ 90%.
-                  </p>
-                </div>
+                <p className="text-xs text-white/50">
+                  Cálculo automático: (Menor Alcance / Maior Alcance) × 100
+                </p>
               </div>
 
-              <div className="text-right shrink-0">
-                <div className="text-3xl font-black">{hopLSI}%</div>
-                <span className="text-[11px] font-semibold uppercase tracking-wider opacity-75">
-                  Single Leg Hop LSI
-                </span>
+              <div className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
+                {hopLSI}%
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* 1. Single Leg Hop Test */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Single Leg Hop */}
+              <div className="card-surface p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                      Potência & Aterrissagem Unipodal
-                    </span>
-                    <h3 className="text-base font-bold text-slate-900">
+                    <h3 className="text-sm font-semibold text-[#0F241C]">
                       Single Leg Hop Test (Salto Unipodal)
                     </h3>
+                    <p className="text-xs text-[#6B7E75]">Distância propulsiva em cm</p>
                   </div>
-                  <span
-                    className={cn(
-                      'px-3 py-1 rounded-full text-xs font-bold border',
-                      hopLSI >= 90
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-rose-50 text-rose-700 border-rose-200'
-                    )}
-                  >
-                    LSI: {hopLSI}%
+                  <span className="text-sm font-semibold text-[#0F241C]">
+                    LSI {hopLSI}%
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <div className="p-4 rounded-2xl bg-[#F4F7F5]">
+                    <label className="block text-xs text-[#5A6E65] mb-1">
                       Membro Direito (cm)
                     </label>
                     <input
                       type="number"
-                      min={10}
-                      max={300}
                       value={hopTestRightCm}
                       onChange={(e) => setHopTestRightCm(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-lg font-bold text-slate-900 outline-none focus:border-teal-500"
+                      className="w-full bg-white px-3 py-2 rounded-xl text-lg font-semibold text-[#0F241C] outline-none"
                     />
                   </div>
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <div className="p-4 rounded-2xl bg-[#F4F7F5]">
+                    <label className="block text-xs text-[#5A6E65] mb-1">
                       Membro Esquerdo (cm)
                     </label>
                     <input
                       type="number"
-                      min={10}
-                      max={300}
                       value={hopTestLeftCm}
                       onChange={(e) => setHopTestLeftCm(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-lg font-bold text-slate-900 outline-none focus:border-teal-500"
+                      className="w-full bg-white px-3 py-2 rounded-xl text-lg font-semibold text-[#0F241C] outline-none"
                     />
                   </div>
                 </div>
 
-                {/* Visual Progress Bar with 90% Cutoff Marker */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs font-medium text-slate-600">
-                    <span>Simetria Atual: {hopLSI}%</span>
-                    <span className="text-teal-700 font-semibold">Corte de Segurança: 90%</span>
-                  </div>
-                  <div className="relative w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                    <div
-                      className={cn(
-                        'h-full transition-all duration-300 rounded-full',
-                        hopLSI >= 90 ? 'bg-emerald-500' : 'bg-rose-500'
-                      )}
-                      style={{ width: `${Math.min(100, hopLSI)}%` }}
-                    />
-                    <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-slate-900"
-                      style={{ left: '90%' }}
-                      title="Corte clínico de 90%"
-                    />
-                  </div>
+                <div className="w-full h-2 bg-[#EBF0ED] rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      hopLSI >= 90 ? 'bg-[#22C55E]' : 'bg-[#E05A47]'
+                    )}
+                    style={{ width: `${Math.min(100, hopLSI)}%` }}
+                  />
                 </div>
               </div>
 
-              {/* 2. Y-Balance Test */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+              {/* Y-Balance */}
+              <div className="card-surface p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                      Estabilidade Dinâmica & Controle Neuromuscular
-                    </span>
-                    <h3 className="text-base font-bold text-slate-900">
+                    <h3 className="text-sm font-semibold text-[#0F241C]">
                       Y-Balance Test (Membros Inferiores)
                     </h3>
+                    <p className="text-xs text-[#6B7E75]">
+                      Estabilidade dinâmica unipodal (cm)
+                    </p>
                   </div>
-                  <span
-                    className={cn(
-                      'px-3 py-1 rounded-full text-xs font-bold border',
-                      Math.abs(yBalanceRightCm - yBalanceLeftCm) < 4
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                    )}
-                  >
-                    Assimetria: {yBalanceAsymmetry}% (
-                    {Math.abs(yBalanceRightCm - yBalanceLeftCm).toFixed(1)} cm)
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-[#F4F7F5] text-[#0F241C]">
+                    Δ {Math.abs(yBalanceRightCm - yBalanceLeftCm).toFixed(1)} cm (
+                    {yBalanceAsymmetry}%)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
-                      Alcance Direito (cm)
+                  <div className="p-4 rounded-2xl bg-[#F4F7F5]">
+                    <label className="block text-xs text-[#5A6E65] mb-1">
+                      Direito (cm)
                     </label>
                     <input
                       type="number"
-                      min={20}
-                      max={150}
                       value={yBalanceRightCm}
                       onChange={(e) => setYBalanceRightCm(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-lg font-bold text-slate-900 outline-none focus:border-teal-500"
+                      className="w-full bg-white px-3 py-2 rounded-xl text-lg font-semibold text-[#0F241C] outline-none"
                     />
                   </div>
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
-                      Alcance Esquerdo (cm)
+                  <div className="p-4 rounded-2xl bg-[#F4F7F5]">
+                    <label className="block text-xs text-[#5A6E65] mb-1">
+                      Esquerdo (cm)
                     </label>
                     <input
                       type="number"
-                      min={20}
-                      max={150}
                       value={yBalanceLeftCm}
                       onChange={(e) => setYBalanceLeftCm(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-lg font-bold text-slate-900 outline-none focus:border-teal-500"
+                      className="w-full bg-white px-3 py-2 rounded-xl text-lg font-semibold text-[#0F241C] outline-none"
                     />
                   </div>
                 </div>
-
-                <p className="text-xs text-slate-500">
-                  Diferença &ge; 4 cm entre membros no alcance anterior indica maior risco de lesão
-                  sem contato em membros inferiores.
-                </p>
               </div>
 
-              {/* 3. Weight-Bearing Lunge Test (Tornozelo) */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+              {/* Lunge Test */}
+              <div className="card-surface p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                      Mobilidade Talocrural em Cadeia Fechada
-                    </span>
-                    <h3 className="text-base font-bold text-slate-900">
+                    <h3 className="text-sm font-semibold text-[#0F241C]">
                       Lunge Test (Dorsiflexão de Tornozelo)
                     </h3>
+                    <p className="text-xs text-[#6B7E75]">
+                      Distância hálux-parede em cadeia fechada (cm)
+                    </p>
                   </div>
-                  <span
-                    className={cn(
-                      'px-3 py-1 rounded-full text-xs font-bold border',
-                      Math.abs(lungeTestRightCm - lungeTestLeftCm) < 1.5
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                    )}
-                  >
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-[#F4F7F5] text-[#0F241C]">
                     Δ {Math.abs(lungeTestRightCm - lungeTestLeftCm).toFixed(1)} cm (
                     {lungeAsymmetry}%)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <div className="p-4 rounded-2xl bg-[#F4F7F5]">
+                    <label className="block text-xs text-[#5A6E65] mb-1">
                       Tornozelo Direito (cm)
                     </label>
                     <input
                       type="number"
                       step="0.5"
-                      min={0}
-                      max={25}
                       value={lungeTestRightCm}
                       onChange={(e) => setLungeTestRightCm(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-lg font-bold text-slate-900 outline-none focus:border-teal-500"
+                      className="w-full bg-white px-3 py-2 rounded-xl text-lg font-semibold text-[#0F241C] outline-none"
                     />
                   </div>
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <div className="p-4 rounded-2xl bg-[#F4F7F5]">
+                    <label className="block text-xs text-[#5A6E65] mb-1">
                       Tornozelo Esquerdo (cm)
                     </label>
                     <input
                       type="number"
                       step="0.5"
-                      min={0}
-                      max={25}
                       value={lungeTestLeftCm}
                       onChange={(e) => setLungeTestLeftCm(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-lg font-bold text-slate-900 outline-none focus:border-teal-500"
+                      className="w-full bg-white px-3 py-2 rounded-xl text-lg font-semibold text-[#0F241C] outline-none"
                     />
                   </div>
                 </div>
-
-                <p className="text-xs text-slate-500">
-                  Distância hálux-parede (referência normal: 10 a 14 cm). Assimetria &ge; 1,5 cm
-                  sugere restrição de dorsiflexão pós-entorse e sobrecarga patelofemoral.
-                </p>
               </div>
 
-              {/* 4. Prancha Isométrica & Observações Funcionais */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                      Resistência Estabilizadora Lombopélvica
-                    </span>
-                    <h3 className="text-base font-bold text-slate-900">
-                      Prancha Ventral Isométrica (Core) & Notas
-                    </h3>
-                  </div>
-                  <span
-                    className={cn(
-                      'px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1',
-                      plankTimeSeconds >= 60
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                    )}
-                  >
-                    <Timer className="w-3.5 h-3.5" />
-                    <span>{plankTimeSeconds}s</span>
-                  </span>
+              {/* Core Plank & Notes */}
+              <div className="card-surface p-6 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#0F241C]">
+                    Prancha Isométrica (Core) & Qualidade de Movimento
+                  </h3>
+                  <p className="text-xs text-[#6B7E75]">
+                    Resistência estabilizadora lombopélvica em segundos
+                  </p>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Tempo de Sustentação com Alinhamento Neutro (segundos)
+                  <label className="block text-xs text-[#5A6E65] mb-1">
+                    Tempo em Segundos
                   </label>
                   <input
                     type="number"
-                    min={0}
-                    max={600}
                     value={plankTimeSeconds}
                     onChange={(e) => setPlankTimeSeconds(Number(e.target.value))}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-base font-bold text-slate-900 outline-none focus:border-teal-500"
+                    className="w-full px-3.5 py-2 rounded-xl bg-[#F4F7F5] text-base font-semibold text-[#0F241C] outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Observações Qualitativas do Movimento (Valgo Dinâmico, Controle de Tronco)
+                  <label className="block text-xs text-[#5A6E65] mb-1">
+                    Observações Biomecânicas
                   </label>
                   <textarea
                     rows={2}
                     value={functionalNotes}
                     onChange={(e) => setFunctionalNotes(e.target.value)}
-                    placeholder="Descreva compensações observadas durante aterrissagem, agachamento unipodal ou corrida..."
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:border-teal-500"
+                    placeholder="Anote valgo dinâmico, controle pélvico ou compensações..."
+                    className="w-full px-3.5 py-2 rounded-xl bg-[#F4F7F5] text-xs text-[#0F241C] outline-none"
                   />
                 </div>
               </div>
@@ -1459,35 +1323,32 @@ export default function NovaAvaliacaoPage() {
           </motion.div>
         )}
 
-        {/* PASSO 4: TESTES ORTOPÉDICOS ESPECIAIS */}
+        {/* STEP 4 */}
         {currentStep === 4 && (
           <motion.div
             key="step-4"
-            initial={{ opacity: 0, x: 15 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -15 }}
-            transition={{ duration: 0.22 }}
-            className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-5"
           >
-            {/* Left 8 Cols: Orthopedic Tests by Joint */}
-            <div className="lg:col-span-8 bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-5">
-              <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    4. Testes Ortopédicos Especiais por Articulação
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Marcação rápida de beira de campo/clínica: Negativo, Positivo ou Não Realizado
-                  </p>
-                </div>
+            <div className="lg:col-span-8 card-surface p-6 space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-[#0F241C]">
+                  Testes Ortopédicos Especiais
+                </h2>
+                <p className="text-xs text-[#6B7E75]">
+                  Selecione o resultado clínico de cada manobra articular
+                </p>
               </div>
 
-              {/* Joint Tabs */}
               <div className="flex flex-wrap gap-2">
                 {(['Joelho', 'Tornozelo', 'Ombro', 'Quadril/Coluna'] as OrthopedicJoint[]).map(
                   (joint) => {
-                    const jointTests = orthopedicTests.filter((t) => t.joint === joint);
-                    const posCount = jointTests.filter((t) => t.result === 'Positivo').length;
+                    const posCount = orthopedicTests.filter(
+                      (t) => t.joint === joint && t.result === 'Positivo'
+                    ).length;
                     const active = activeJointTab === joint;
 
                     return (
@@ -1496,16 +1357,16 @@ export default function NovaAvaliacaoPage() {
                         type="button"
                         onClick={() => setActiveJointTab(joint)}
                         className={cn(
-                          'px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border',
+                          'px-4 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-2',
                           active
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-[#0F241C] text-white'
+                            : 'bg-[#F4F7F5] text-[#496558] hover:bg-[#E6F0EB]'
                         )}
                       >
                         <span>{joint}</span>
                         {posCount > 0 && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px]">
-                            {posCount} (+)
+                          <span className="px-1.5 py-0.5 rounded-full bg-[#E05A47] text-white text-[10px]">
+                            {posCount}
                           </span>
                         )}
                       </button>
@@ -1514,8 +1375,7 @@ export default function NovaAvaliacaoPage() {
                 )}
               </div>
 
-              {/* Tests List for Active Joint */}
-              <div className="space-y-3.5">
+              <div className="space-y-3">
                 {orthopedicTests
                   .filter((t) => t.joint === activeJointTab)
                   .map((test) => {
@@ -1529,56 +1389,63 @@ export default function NovaAvaliacaoPage() {
                         className={cn(
                           'p-4 rounded-2xl border transition-all space-y-3',
                           isPositive
-                            ? 'bg-rose-50/50 border-rose-300'
-                            : isNegative
-                            ? 'bg-emerald-50/20 border-slate-200'
-                            : 'bg-slate-50 border-slate-200 opacity-75'
+                            ? 'bg-[#FDECEC]/60 border-[#F5C2C2]'
+                            : 'bg-[#F4F7F5] border-transparent'
                         )}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div>
-                            <h4 className="font-bold text-sm text-slate-900">{test.name}</h4>
-                            <p className="text-xs text-slate-500">
-                              Estrutura alvo: {test.targetStructure}
+                            <h4 className="font-semibold text-sm text-[#0F241C]">
+                              {test.name}
+                            </h4>
+                            <p className="text-xs text-[#6B7E75]">
+                              {test.targetStructure}
                             </p>
                           </div>
 
-                          {/* 1-Click Result Buttons */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               type="button"
-                              onClick={() => updateOrthoTest(test.id, { result: 'Negativo' })}
+                              onClick={() =>
+                                updateOrthoTest(test.id, { result: 'Negativo' })
+                              }
                               className={cn(
-                                'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all',
+                                'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
                                 isNegative
-                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-emerald-50'
+                                  ? 'bg-[#0F241C] text-white'
+                                  : 'bg-white text-[#496558]'
                               )}
                             >
-                              Negativo (-)
+                              Negativo
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => updateOrthoTest(test.id, { result: 'Positivo' })}
+                              onClick={() =>
+                                updateOrthoTest(test.id, { result: 'Positivo' })
+                              }
                               className={cn(
-                                'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all',
+                                'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
                                 isPositive
-                                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-rose-50'
+                                  ? 'bg-[#C83E3B] text-white'
+                                  : 'bg-white text-[#496558]'
                               )}
                             >
-                              Positivo (+)
+                              Positivo
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => updateOrthoTest(test.id, { result: 'Não realizado' })}
+                              onClick={() =>
+                                updateOrthoTest(test.id, {
+                                  result: 'Não realizado',
+                                })
+                              }
                               className={cn(
-                                'px-3 py-1.5 rounded-xl text-xs font-bold border transition-all',
+                                'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
                                 isNA
-                                  ? 'bg-slate-700 text-white border-slate-700'
-                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
+                                  ? 'bg-[#6B7E75] text-white'
+                                  : 'bg-white text-[#6B7E75]'
                               )}
                             >
                               N/A
@@ -1586,28 +1453,26 @@ export default function NovaAvaliacaoPage() {
                           </div>
                         </div>
 
-                        {/* Side & Clinical Notes */}
                         {test.result !== 'Não realizado' && (
-                          <div className="pt-2 border-t border-slate-200/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-slate-200 shrink-0">
-                              <span className="text-[11px] font-semibold text-slate-400 mr-1">
-                                Lado:
-                              </span>
-                              {(['Direito', 'Esquerdo', 'Bilateral'] as BodySide[]).map((s) => (
-                                <button
-                                  key={s}
-                                  type="button"
-                                  onClick={() => updateOrthoTest(test.id, { side: s })}
-                                  className={cn(
-                                    'px-2 py-0.5 rounded text-[11px] font-bold transition-colors',
-                                    test.side === s
-                                      ? 'bg-teal-600 text-white'
-                                      : 'text-slate-600 hover:bg-slate-100'
-                                  )}
-                                >
-                                  {s}
-                                </button>
-                              ))}
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg shrink-0">
+                              {(['Direito', 'Esquerdo', 'Bilateral'] as BodySide[]).map(
+                                (s) => (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => updateOrthoTest(test.id, { side: s })}
+                                    className={cn(
+                                      'px-2 py-0.5 rounded text-[11px] font-medium',
+                                      test.side === s
+                                        ? 'bg-[#0F241C] text-white'
+                                        : 'text-[#6B7E75]'
+                                    )}
+                                  >
+                                    {s}
+                                  </button>
+                                )
+                              )}
                             </div>
 
                             <input
@@ -1616,8 +1481,8 @@ export default function NovaAvaliacaoPage() {
                               onChange={(e) =>
                                 updateOrthoTest(test.id, { painNotes: e.target.value })
                               }
-                              placeholder="Observação clínica (ex: dor subacromial, frouxidão leve, end-feel firme)..."
-                              className="flex-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs text-slate-800 outline-none focus:border-teal-500"
+                              placeholder="Observação clínica (ex: dor subacromial, end-feel firme)..."
+                              className="flex-1 px-3 py-1.5 rounded-lg bg-white text-xs text-[#0F241C] outline-none"
                             />
                           </div>
                         )}
@@ -1627,66 +1492,46 @@ export default function NovaAvaliacaoPage() {
               </div>
             </div>
 
-            {/* Right 4 Cols: Live Automatic Clinical Summary Preview */}
-            <div className="lg:col-span-4 space-y-5">
-              <div className="bg-slate-900 text-white rounded-2xl p-6 border border-slate-800 shadow-lg space-y-5 sticky top-24">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            {/* Right 4 Cols: Dark Forest Glassmorphic Summary Preview */}
+            <div className="lg:col-span-4">
+              <div className="rounded-[24px] bg-[#0B1913] text-white p-6 space-y-5 sticky top-8 relative overflow-hidden">
+                <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-[#22C55E]/15 blur-2xl pointer-events-none" />
+
+                <div className="flex items-center justify-between relative z-10">
                   <div>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-400">
-                      Síntese Clínica em Tempo Real
-                    </span>
-                    <h3 className="text-base font-bold text-white">
-                      Prévia do Laudo de Prontidão
+                    <p className="text-[11px] text-emerald-400 font-medium">
+                      Síntese Automática
+                    </p>
+                    <h3 className="text-base font-semibold text-white">
+                      Score de Prontidão
                     </h3>
                   </div>
-                  <div className="text-right">
-                    <span className="text-2xl font-black text-teal-400">
-                      {livePreviewAthlete.clinicalSummary.readinessScore}
-                    </span>
-                    <span className="text-xs text-slate-400">/100</span>
+                  <div className="text-3xl font-semibold text-white">
+                    {livePreviewAthlete.clinicalSummary.readinessScore}
+                    <span className="text-xs text-white/40">/100</span>
                   </div>
                 </div>
 
-                {/* Semáforo de Risco */}
-                <div
-                  className={cn(
-                    'p-4 rounded-xl border flex items-center gap-3',
-                    livePreviewAthlete.clinicalSummary.riskLevel === 'Alto'
-                      ? 'bg-rose-950/60 border-rose-700/80 text-rose-200'
-                      : livePreviewAthlete.clinicalSummary.riskLevel === 'Moderado'
-                      ? 'bg-amber-950/60 border-amber-700/80 text-amber-200'
-                      : 'bg-emerald-950/60 border-emerald-700/80 text-emerald-200'
-                  )}
-                >
-                  <ShieldAlert className="w-6 h-6 shrink-0" />
-                  <div>
-                    <p className="text-xs uppercase font-bold tracking-wider opacity-80">
-                      Classificação de Risco
-                    </p>
-                    <p className="text-sm font-bold">
-                      Risco {livePreviewAthlete.clinicalSummary.riskLevel} (
-                      {livePreviewAthlete.clinicalSummary.riskLevel === 'Baixo'
-                        ? 'Apto ao Esporte'
-                        : livePreviewAthlete.clinicalSummary.riskLevel === 'Moderado'
-                        ? 'Retorno Monitorado'
-                        : 'Restrição / Reabilitação'}
-                      )
-                    </p>
-                  </div>
-                </div>
-
-                {/* Alertas Detectados */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    Achados Clínicos ({livePreviewAthlete.clinicalSummary.alerts.length})
+                <div className="glass-dark rounded-2xl p-4 relative z-10">
+                  <p className="text-[10px] uppercase tracking-wider text-white/50">
+                    Classificação Clínica
                   </p>
-                  <ul className="space-y-2 text-xs text-slate-300">
+                  <p className="text-sm font-semibold text-white mt-0.5">
+                    Risco {livePreviewAthlete.clinicalSummary.riskLevel}
+                  </p>
+                </div>
+
+                <div className="space-y-2 relative z-10">
+                  <p className="text-[11px] text-white/50 font-medium">
+                    Achados Identificados
+                  </p>
+                  <ul className="space-y-2 text-xs text-white/80">
                     {livePreviewAthlete.clinicalSummary.alerts.map((alert, i) => (
                       <li
                         key={i}
-                        className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700/80 leading-relaxed"
+                        className="p-3 rounded-xl bg-white/[0.05] border border-white/[0.08] leading-relaxed"
                       >
-                        • {alert}
+                        {alert}
                       </li>
                     ))}
                   </ul>
@@ -1694,11 +1539,16 @@ export default function NovaAvaliacaoPage() {
 
                 <button
                   type="button"
+                  disabled={isMutating}
                   onClick={handleFinishAssessment}
-                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-teal-500/25 flex items-center justify-center gap-2 transition-all"
+                  className="w-full py-3.5 px-4 rounded-xl bg-[#22C55E] hover:bg-[#16A34A] text-[#0B1913] font-semibold text-xs flex items-center justify-center gap-2 transition-all relative z-10 disabled:opacity-50"
                 >
-                  <ClipboardCheck className="w-4 h-4" />
-                  <span>Gerar Prontuário & Laudo Completo</span>
+                  {isMutating && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>
+                    {editId
+                      ? 'Salvar Alterações no Prontuário'
+                      : 'Salvar Avaliação & Gerar Laudo'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1706,39 +1556,58 @@ export default function NovaAvaliacaoPage() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Wizard Navigation Controls */}
-      <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+      {/* Bottom Controls */}
+      <div className="flex items-center justify-between pt-2">
         <button
           type="button"
           onClick={() =>
-            currentStep > 1 ? setCurrentStep(currentStep - 1) : router.push('/')
+            currentStep > 1
+              ? setCurrentStep(currentStep - 1)
+              : router.push(editId ? `/atleta/${editId}` : '/')
           }
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-sm font-semibold transition-all"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-neutral-50 text-[#0F241C] border border-[#E6ECE8] text-xs font-medium transition-all"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{currentStep > 1 ? 'Passo Anterior' : 'Voltar ao Dashboard'}</span>
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>{currentStep > 1 ? 'Etapa Anterior' : 'Voltar'}</span>
         </button>
 
         {currentStep < 4 ? (
           <button
             type="button"
             onClick={() => setCurrentStep(currentStep + 1)}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow-sm transition-all"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0F241C] hover:bg-[#173529] text-white text-xs font-medium transition-all"
           >
-            <span>Próxima Etapa ({STEPS[currentStep].title})</span>
-            <ArrowRight className="w-4 h-4" />
+            <span>Próxima Etapa</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         ) : (
           <button
             type="button"
+            disabled={isMutating}
             onClick={handleFinishAssessment}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-sm font-bold shadow-md shadow-teal-600/20 transition-all"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#0F241C] hover:bg-[#173529] text-white text-xs font-medium transition-all disabled:opacity-50"
           >
-            <ClipboardCheck className="w-4 h-4" />
-            <span>Finalizar e Abrir Laudo do Atleta</span>
+            {isMutating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>
+              {editId ? 'Confirmar Alterações' : 'Concluir e Abrir Prontuário'}
+            </span>
           </button>
         )}
       </div>
     </div>
+  );
+}
+
+export default function NovaAvaliacaoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24 text-[#6B7E75] text-xs">
+          Carregando avaliação...
+        </div>
+      }
+    >
+      <AssessmentWizardContent />
+    </Suspense>
   );
 }

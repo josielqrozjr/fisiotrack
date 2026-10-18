@@ -3,28 +3,13 @@
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import {
-  Activity,
-  AlertOctagon,
-  AlertTriangle,
-  ArrowUpRight,
-  Award,
-  CheckCircle2,
-  ClipboardPlus,
-  Clock,
-  Dumbbell,
-  Filter,
-  Flame,
-  HeartPulse,
-  ShieldAlert,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
+import { ArrowUpRight, MoreVertical } from 'lucide-react';
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,20 +17,18 @@ import {
 } from 'recharts';
 import { useFisioTrack } from '@/context/FisioTrackContext';
 import { RiskLevel } from '@/types/fisiotrack';
-import { cn, formatDateBR } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { athletes, searchQuery } = useFisioTrack();
   const [selectedSport, setSelectedSport] = useState<string>('Todos');
   const [selectedRisk, setSelectedRisk] = useState<string>('Todos');
 
-  // Sports list for filter
   const sportsList = useMemo(() => {
     const unique = Array.from(new Set(athletes.map((a) => a.mainSport)));
     return ['Todos', ...unique];
   }, [athletes]);
 
-  // Filtered athletes
   const filteredAthletes = useMemo(() => {
     return athletes.filter((athlete) => {
       const matchesSearch =
@@ -68,52 +51,54 @@ export default function DashboardPage() {
     });
   }, [athletes, searchQuery, selectedSport, selectedRisk]);
 
-  // KPI Metrics Calculation
-  const kpis = useMemo(() => {
-    const totalAthletes = athletes.length;
-    const athletesInAlert = athletes.filter(
-      (a) =>
-        a.clinicalSummary.riskLevel === 'Alto' ||
-        a.clinicalSummary.riskLevel === 'Moderado' ||
-        a.functional.hopTestLSI < 90 ||
-        a.orthopedic.tests.some((t) => t.result === 'Positivo')
+  // Dashboard Metrics
+  const stats = useMemo(() => {
+    const total = athletes.length;
+    const avgLSI =
+      total > 0
+        ? (
+            athletes.reduce((acc, a) => acc + a.functional.hopTestLSI, 0) / total
+          ).toFixed(1)
+        : '0.0';
+
+    const avgReadiness =
+      total > 0
+        ? (
+            athletes.reduce((acc, a) => acc + a.clinicalSummary.readinessScore, 0) /
+            total
+          ).toFixed(1)
+        : '0.0';
+
+    const totalWeeklyHours = athletes
+      .reduce(
+        (acc, a) => acc + (a.mainSportFrequency * a.sessionDurationMinutes) / 60,
+        0
+      )
+      .toFixed(1);
+
+    const totalWeeklySessions = athletes.reduce((acc, a) => {
+      const extras = a.hasExtraActivity
+        ? a.extraActivities.reduce((s, e) => s + e.weeklyFrequency, 0)
+        : 0;
+      return acc + a.mainSportFrequency + extras;
+    }, 0);
+
+    const adequateLsiCount = athletes.filter(
+      (a) => a.functional.hopTestLSI >= 90
     ).length;
 
-    const highRiskCount = athletes.filter(
-      (a) => a.clinicalSummary.riskLevel === 'Alto'
-    ).length;
+    const positiveOrthoCount = athletes.reduce(
+      (acc, a) =>
+        acc + a.orthopedic.tests.filter((t) => t.result === 'Positivo').length,
+      0
+    );
 
-    // Weekly load (sport sessions + extra activities)
-    const avgWeeklySessions =
-      totalAthletes > 0
-        ? (
-            athletes.reduce((acc, a) => {
-              const extraSum = a.hasExtraActivity
-                ? a.extraActivities.reduce((s, e) => s + e.weeklyFrequency, 0)
-                : 0;
-              return acc + a.mainSportFrequency + extraSum;
-            }, 0) / totalAthletes
-          ).toFixed(1)
-        : '0';
-
-    const avgWeeklyHours =
-      totalAthletes > 0
-        ? (
-            athletes.reduce(
-              (acc, a) => acc + (a.mainSportFrequency * a.sessionDurationMinutes) / 60,
-              0
-            ) / totalAthletes
-          ).toFixed(1)
-        : '0';
-
-    // Joint distribution combining injuries + positive orthopedic tests
+    // Joint distribution
     const regionMap: Record<string, number> = {
       Joelho: 0,
       Ombro: 0,
       'Tornozelo/Pé': 0,
       'Quadril/Coluna': 0,
-      'Cotovelo/Punho': 0,
-      'Muscular/Outros': 0,
     };
 
     athletes.forEach((a) => {
@@ -124,7 +109,6 @@ export default function DashboardPage() {
             : inj.bodyRegion;
         regionMap[key] = (regionMap[key] || 0) + 1;
       });
-
       a.orthopedic.tests
         .filter((t) => t.result === 'Positivo')
         .forEach((t) => {
@@ -134,523 +118,520 @@ export default function DashboardPage() {
     });
 
     const sortedRegions = Object.entries(regionMap).sort((a, b) => b[1] - a[1]);
-    const topRegion = sortedRegions[0] && sortedRegions[0][1] > 0 ? sortedRegions[0][0] : 'Nenhuma';
+    const topRegion = sortedRegions[0] || ['Joelho', 0];
 
-    const chartData = Object.entries(regionMap).map(([region, count]) => ({
-      region,
-      ocorrencias: count,
+    // Chart data comparing athletes' Hop Test LSI and Y-Balance Symmetry
+    const symmetryChartData = athletes.map((a) => ({
+      name: a.name.split(' ')[0],
+      fullName: a.name,
+      lsi: a.functional.hopTestLSI,
+      ySymmetry: Number((100 - a.functional.yBalanceAsymmetryPercent).toFixed(1)),
+      readiness: a.clinicalSummary.readinessScore,
     }));
 
     return {
-      totalAthletes,
-      athletesInAlert,
-      highRiskCount,
-      avgWeeklySessions,
-      avgWeeklyHours,
+      total,
+      avgLSI,
+      avgReadiness,
+      totalWeeklyHours,
+      totalWeeklySessions,
+      adequateLsiCount,
+      positiveOrthoCount,
       topRegion,
-      chartData,
+      regionMap,
+      symmetryChartData,
     };
   }, [athletes]);
 
-  const getRiskBadge = (risk: RiskLevel) => {
-    switch (risk) {
-      case 'Alto':
-        return {
-          bg: 'bg-rose-50 text-rose-700 border-rose-200',
-          dot: 'bg-rose-500',
-          icon: AlertOctagon,
-          label: 'Alto Risco / Restrição',
-        };
-      case 'Moderado':
-        return {
-          bg: 'bg-amber-50 text-amber-700 border-amber-200',
-          dot: 'bg-amber-500',
-          icon: AlertTriangle,
-          label: 'Atenção / Assimetria',
-        };
-      default:
-        return {
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-          dot: 'bg-emerald-500',
-          icon: CheckCircle2,
-          label: 'Baixo Risco / Apto',
-        };
+  const getStatusTag = (risk: RiskLevel) => {
+    if (risk === 'Alto') {
+      return {
+        label: 'Reabilitação / Restrição',
+        className: 'bg-[#FDECEC] text-[#9E2A2B]',
+        curveColor: '#E05A47',
+      };
     }
+    if (risk === 'Moderado') {
+      return {
+        label: 'Atenção Funcional',
+        className: 'bg-[#FDF3E4] text-[#8F5B14]',
+        curveColor: '#D9822B',
+      };
+    }
+    return {
+      label: 'Apto (Return to Play)',
+      className: 'bg-[#E6F4EA] text-[#175634]',
+      curveColor: '#22C55E',
+    };
   };
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0F172A] via-slate-900 to-teal-950 text-white p-6 sm:p-8 shadow-xl border border-slate-800">
-        <div className="absolute -right-12 -top-12 w-72 h-72 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
-        <div className="absolute right-24 -bottom-16 w-64 h-64 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+    <div className="space-y-6 pb-10">
+      {/* Clean Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-[28px] font-semibold tracking-tight text-[#0F241C]">
+            Dashboard
+          </h1>
+          <p className="text-xs text-[#5A6E65] mt-0.5">
+            Monitoramento clínico de prontidão esportiva, assimetria funcional e testes ortopédicos
+          </p>
+        </div>
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/15 border border-teal-400/30 text-teal-300 text-xs font-semibold">
-              <HeartPulse className="w-3.5 h-3.5" />
-              <span>Sistema Clínico de Rastreio & Return-to-Play</span>
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-1 bg-white rounded-xl p-1 border border-[#E6ECE8]">
+            {(['Todos', 'Alto', 'Moderado', 'Baixo'] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setSelectedRisk(r)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  selectedRisk === r
+                    ? 'bg-[#0F241C] text-white'
+                    : 'text-[#5A6E65] hover:text-[#0F241C]'
+                )}
+              >
+                {r === 'Todos' ? 'Todos' : `Risco ${r}`}
+              </button>
+            ))}
+          </div>
+
+          <Link
+            href="/avaliacao/nova"
+            className="px-4 py-2.5 rounded-xl bg-[#0F241C] hover:bg-[#173529] text-white text-xs font-medium transition-all shadow-sm"
+          >
+            Nova Avaliação
+          </Link>
+        </div>
+      </div>
+
+      {/* ROW 1: 3 KPI Cards (1 Inverted Dark Forest Card + 2 Crisp White Cards with Mini Bar Sparklines) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Card 1: Highlighted Dark Forest Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#0F241C] via-[#132C22] to-[#0B1913] text-white p-6 shadow-lg flex items-end justify-between"
+        >
+          <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-emerald-500/15 blur-2xl pointer-events-none" />
+          <div className="space-y-2 relative z-10">
+            <p className="text-xs text-white/60 font-medium">
+              Índice de Simetria Médio (LSI)
+            </p>
+            <div className="text-3xl sm:text-[34px] font-semibold tracking-tight leading-none">
+              {stats.avgLSI}%
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-              Painel de Vigilância Fisioterapêutica Esportiva
-            </h1>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Monitoramento integrado de Anamnese Esportiva, Índice de Simetria entre Membros (LSI),
-              Testes Funcionais e Testes Ortopédicos Especiais para tomada de decisão clínica baseada em evidências.
+            <p className="text-[11px] text-emerald-400 font-medium pt-1">
+              ↗ Corte clínico RTS ≥ 90%
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <Link
-              href="/avaliacao/nova"
-              className="inline-flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-teal-500/25 transition-all"
-            >
-              <ClipboardPlus className="w-4 h-4" />
-              <span>Iniciar Nova Avaliação</span>
-            </Link>
+          {/* Mini Vertical Bar Sparkline */}
+          <div className="flex items-end gap-1.5 h-12 relative z-10">
+            <span className="w-1.5 h-10 rounded-full bg-[#22C55E]" />
+            <span className="w-1.5 h-6 rounded-full bg-[#22C55E]/70" />
+            <span className="w-1.5 h-8 rounded-full bg-[#22C55E]/85" />
+            <span className="w-1.5 h-12 rounded-full bg-[#22C55E]" />
+          </div>
+        </motion.div>
+
+        {/* Card 2: Readiness Score Index */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.05 }}
+          className="card-surface p-6 flex items-end justify-between"
+        >
+          <div className="space-y-2">
+            <p className="text-xs text-[#6B7E75] font-medium">
+              Índice de Prontidão Esportiva
+            </p>
+            <div className="text-3xl sm:text-[34px] font-semibold tracking-tight leading-none text-[#0F241C]">
+              {stats.avgReadiness}
+              <span className="text-lg font-normal text-[#8A9B93]">/100%</span>
+            </div>
+            <p className="text-[11px] text-[#D96B52] font-medium pt-1">
+              ↘ {stats.positiveOrthoCount} testes ortopédicos positivos
+            </p>
+          </div>
+
+          {/* Mini Vertical Bar Sparkline (Coral) */}
+          <div className="flex items-end gap-1.5 h-12">
+            <span className="w-1.5 h-5 rounded-full bg-[#E06D53]/70" />
+            <span className="w-1.5 h-9 rounded-full bg-[#E06D53]" />
+            <span className="w-1.5 h-4 rounded-full bg-[#E06D53]/60" />
+            <span className="w-1.5 h-11 rounded-full bg-[#E06D53]" />
+          </div>
+        </motion.div>
+
+        {/* Card 3: Weekly Training Load */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.1 }}
+          className="card-surface p-6 flex items-end justify-between"
+        >
+          <div className="space-y-2">
+            <p className="text-xs text-[#6B7E75] font-medium">
+              Volume Semanal Monitorado
+            </p>
+            <div className="text-3xl sm:text-[34px] font-semibold tracking-tight leading-none text-[#0F241C]">
+              {stats.totalWeeklyHours}h
+              <span className="text-base font-normal text-[#8A9B93]"> / sem</span>
+            </div>
+            <p className="text-[11px] text-[#209653] font-medium pt-1">
+              ↗ {stats.totalWeeklySessions} sessões semanais acumuladas
+            </p>
+          </div>
+
+          {/* Mini Vertical Bar Sparkline (Green) */}
+          <div className="flex items-end gap-1.5 h-12">
+            <span className="w-1.5 h-6 rounded-full bg-[#22C55E]/70" />
+            <span className="w-1.5 h-9 rounded-full bg-[#22C55E]" />
+            <span className="w-1.5 h-5 rounded-full bg-[#22C55E]/60" />
+            <span className="w-1.5 h-11 rounded-full bg-[#22C55E]" />
+          </div>
+        </motion.div>
+      </div>
+
+      {/* ROW 2: Bento Grid — Main Functional Symmetry Chart (8 cols) + Soft Sage Summary Card (4 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left 8 Cols: Functional Symmetry Index Chart */}
+        <div className="lg:col-span-8 card-surface p-6 flex flex-col justify-between space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-[#0F241C]">
+                Índice de Simetria entre Membros (LSI %) & Y-Balance
+              </h2>
+              <p className="text-xs text-[#6B7E75]">
+                Comparativo individual frente à linha de corte para alta esportiva (90%)
+              </p>
+            </div>
+            <span className="px-3 py-1 rounded-full bg-[#0F241C] text-white text-[11px] font-medium">
+              Meta RTS ≥ 90%
+            </span>
+          </div>
+
+          <div className="h-60 w-full pt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={stats.symmetryChartData}
+                margin={{ top: 16, right: 16, left: -16, bottom: 0 }}
+                barGap={6}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke="#E8EEEA"
+                />
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 12, fill: '#5A6E65', fontWeight: 500 }}
+                />
+                <YAxis
+                  domain={[0, 105]}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: '#8A9B93' }}
+                />
+                <Tooltip
+                  cursor={{ fill: '#F4F7F5' }}
+                  contentStyle={{
+                    backgroundColor: '#0F241C',
+                    color: '#ffffff',
+                    borderRadius: '14px',
+                    border: 'none',
+                    fontSize: '12px',
+                    padding: '10px 14px',
+                  }}
+                />
+                <ReferenceLine
+                  y={90}
+                  stroke="#0F241C"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                />
+                <Bar
+                  dataKey="lsi"
+                  name="Hop Test LSI (%)"
+                  radius={[6, 6, 6, 6]}
+                  barSize={16}
+                >
+                  {stats.symmetryChartData.map((entry, idx) => (
+                    <Cell
+                      key={`lsi-${idx}`}
+                      fill={entry.lsi >= 90 ? '#22C55E' : '#0F241C'}
+                    />
+                  ))}
+                </Bar>
+                <Bar
+                  dataKey="ySymmetry"
+                  name="Simetria Y-Balance (%)"
+                  radius={[6, 6, 6, 6]}
+                  barSize={16}
+                  fill="#B8D8C5"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Right 4 Cols: Soft Sage Tinted Card (Inspired by "99,681m TONS" in Image 4) */}
+        <div className="lg:col-span-4 rounded-[24px] bg-[#DCECE3] border border-[#CBE0D4] p-6 flex flex-col justify-between space-y-6">
+          <div className="space-y-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl sm:text-[44px] font-semibold tracking-tight text-[#0F241C] leading-none">
+                {stats.total}
+              </span>
+              <span className="text-sm font-medium uppercase tracking-wider text-[#496558]">
+                Atletas Avaliados
+              </span>
+            </div>
+            <p className="text-xs font-medium text-[#1F7A46] pt-1">
+              ↗ {stats.adequateLsiCount} de {stats.total} atingiram LSI ≥ 90% no Hop Test
+            </p>
+          </div>
+
+          <div className="space-y-3.5">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-[#C6DFD1] flex items-center justify-center shrink-0">
+                <span className="w-3 h-3 rounded-full bg-[#0F241C]" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#0F241C]">
+                  Estabilidade & Controle Motor
+                </p>
+                <p className="text-xs text-[#496558]">
+                  {stats.adequateLsiCount} atletas com simetria liberada
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-[#C6DFD1] flex items-center justify-center shrink-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#1F7A46]" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#0F241C]">
+                  Exame Ortopédico Especial
+                </p>
+                <p className="text-xs text-[#496558]">
+                  {stats.positiveOrthoCount} testes clínicos positivos em acompanhamento
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 4 KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-          className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Total de Atletas
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-              <Users className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-3xl font-bold text-slate-900">{kpis.totalAthletes}</div>
-            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5 text-teal-600" />
-              <span>100% com avaliação funcional completa</span>
-            </p>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.05 }}
-          className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Atletas em Alerta
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900">{kpis.athletesInAlert}</span>
-              <span className="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                {kpis.highRiskCount} Alto Risco
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Assimetria (LSI &lt; 90%), dor ou teste (+)
-            </p>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.1 }}
-          className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Carga Média Semanal
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Flame className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-bold text-slate-900">{kpis.avgWeeklySessions}</span>
-              <span className="text-sm font-medium text-slate-500">sessões/sem</span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-amber-600" />
-              <span>~{kpis.avgWeeklyHours}h de volume específico/semana</span>
-            </p>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.15 }}
-          className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Regiões Acometidas
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Activity className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-bold text-slate-900 truncate">{kpis.topRegion}</div>
-            <p className="text-xs text-slate-500 mt-1">
-              Joelho, Ombro e Tornozelo lideram ocorrências
-            </p>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Main Grid: Athletes List (Left 2 cols) + Epidemiological Chart & LSI Summary (Right 1 col) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Columns: Athletes List with Filters */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">
-                  Atletas Avaliados & Status de Prontidão
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Clique em um atleta para abrir o Prontuário Completo e Laudo Return-to-Play
-                </p>
-              </div>
-
-              {/* Filters */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl text-xs">
-                  <Filter className="w-3.5 h-3.5 text-slate-500" />
-                  <select
-                    value={selectedSport}
-                    onChange={(e) => setSelectedSport(e.target.value)}
-                    className="bg-transparent font-medium text-slate-700 outline-none cursor-pointer"
-                    aria-label="Filtrar por esporte"
-                  >
-                    {sportsList.map((sport) => (
-                      <option key={sport} value={sport}>
-                        {sport === 'Todos' ? 'Todos os Esportes' : sport}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs">
-                  {(['Todos', 'Alto', 'Moderado', 'Baixo'] as const).map((risk) => (
-                    <button
-                      key={risk}
-                      onClick={() => setSelectedRisk(risk)}
-                      className={cn(
-                        'px-2.5 py-1 rounded-lg font-medium transition-all',
-                        selectedRisk === risk
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900'
-                      )}
-                    >
-                      {risk}
-                    </button>
-                  ))}
-                </div>
-              </div>
+      {/* ROW 3: Clean Athlete Table (8 cols) + Dark Glass Joint Map Card (4 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left 8 Cols: Structured Athlete Roster Table */}
+        <div className="lg:col-span-8 card-surface p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-[#0F241C]">
+                Rastreio Clínico por Atleta
+              </h2>
+              <p className="text-xs text-[#6B7E75]">
+                Selecione um atleta para visualizar o Prontuário Completo e Laudo Return-to-Play
+              </p>
             </div>
 
-            {/* Athlete Cards */}
-            <div className="space-y-3.5">
-              {filteredAthletes.length === 0 ? (
-                <div className="text-center py-12 px-4 rounded-2xl border border-dashed border-slate-200">
-                  <p className="text-sm font-medium text-slate-600">
-                    Nenhum atleta encontrado com os filtros selecionados.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setSelectedSport('Todos');
-                      setSelectedRisk('Todos');
-                    }}
-                    className="mt-2 text-xs font-semibold text-teal-600 hover:underline"
-                  >
-                    Limpar filtros
-                  </button>
-                </div>
-              ) : (
-                filteredAthletes.map((athlete, idx) => {
-                  const badge = getRiskBadge(athlete.clinicalSummary.riskLevel);
-                  const BadgeIcon = badge.icon;
-                  const positiveTests = athlete.orthopedic.tests.filter(
-                    (t) => t.result === 'Positivo'
-                  );
-                  const lsi = athlete.functional.hopTestLSI;
-                  const isLsiLow = lsi < 90;
+            <select
+              value={selectedSport}
+              onChange={(e) => setSelectedSport(e.target.value)}
+              className="px-3.5 py-1.5 rounded-full bg-[#0F241C] text-white text-xs font-medium outline-none cursor-pointer self-start sm:self-auto"
+            >
+              {sportsList.map((sport) => (
+                <option key={sport} value={sport}>
+                  {sport === 'Todos' ? 'Todas as Modalidades' : sport}
+                </option>
+              ))}
+            </select>
+          </div>
 
-                  return (
-                    <motion.div
-                      key={athlete.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2, delay: idx * 0.04 }}
-                    >
-                      <Link
-                        href={`/atleta/${athlete.id}`}
-                        className="block rounded-2xl border border-slate-200/90 hover:border-teal-500/60 bg-white hover:bg-slate-50/50 p-5 transition-all shadow-sm hover:shadow-md group"
+          {filteredAthletes.length === 0 ? (
+            <div className="py-12 text-center text-xs text-[#6B7E75]">
+              Nenhum atleta encontrado para os critérios selecionados.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#EBF0ED] text-[11px] font-medium text-[#8A9B93]">
+                    <th className="pb-3 font-medium">Atleta</th>
+                    <th className="pb-3 font-medium">Carga</th>
+                    <th className="pb-3 font-medium">Hop LSI</th>
+                    <th className="pb-3 font-medium hidden sm:table-cell">Simetria</th>
+                    <th className="pb-3 font-medium">Status Clínico</th>
+                    <th className="pb-3 font-medium text-right">Score RTS</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F0F4F1] text-xs">
+                  {filteredAthletes.map((athlete) => {
+                    const statusTag = getStatusTag(
+                      athlete.clinicalSummary.riskLevel
+                    );
+                    const lsi = athlete.functional.hopTestLSI;
+
+                    return (
+                      <tr
+                        key={athlete.id}
+                        className="group hover:bg-[#F4F8F5] transition-colors"
                       >
-                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                          {/* Athlete Identity & Sport Routine */}
-                          <div className="flex items-start gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-white font-bold text-base flex items-center justify-center shrink-0 shadow-sm group-hover:from-teal-600 group-hover:to-emerald-600 transition-colors">
+                        <td className="py-3.5 pr-3">
+                          <Link
+                            href={`/atleta/${athlete.id}`}
+                            className="flex items-center gap-3"
+                          >
+                            <div className="w-9 h-9 rounded-full bg-[#0F241C] text-white font-semibold text-xs flex items-center justify-center shrink-0 group-hover:bg-[#1E8E4E] transition-colors">
                               {athlete.name
                                 .split(' ')
                                 .map((n) => n[0])
                                 .slice(0, 2)
                                 .join('')}
                             </div>
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="font-bold text-base text-slate-900 group-hover:text-teal-700 transition-colors">
-                                  {athlete.name}
-                                </h3>
-                                <span className="text-xs text-slate-500 font-medium">
-                                  {athlete.age} anos • {athlete.dominance}
-                                </span>
-                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                                  {athlete.competitiveLevel}
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                                <span className="font-semibold text-teal-700 flex items-center gap-1">
-                                  <Award className="w-3.5 h-3.5" />
-                                  {athlete.mainSport} ({athlete.mainSportFrequency}x/sem •{' '}
-                                  {athlete.sessionDurationMinutes}min)
-                                </span>
-                                {athlete.hasExtraActivity &&
-                                  athlete.extraActivities.length > 0 && (
-                                    <span className="text-slate-500 flex items-center gap-1">
-                                      <Dumbbell className="w-3.5 h-3.5 text-slate-400" />+{' '}
-                                      {athlete.extraActivities
-                                        .map((e) => `${e.activityName} (${e.weeklyFrequency}x/sem)`)
-                                        .join(', ')}
-                                    </span>
-                                  )}
-                                {!athlete.hasExtraActivity && (
-                                  <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[11px] font-medium">
-                                    Sem treino complementar
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Risk Status Badge */}
-                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border',
-                                badge.bg
-                              )}
-                            >
-                              <BadgeIcon className="w-3.5 h-3.5" />
-                              <span>{badge.label}</span>
-                            </span>
-                            <div className="w-8 h-8 rounded-xl bg-slate-100 group-hover:bg-teal-600 group-hover:text-white text-slate-500 flex items-center justify-center transition-colors">
-                              <ArrowUpRight className="w-4 h-4" />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Clinical Metrics Row */}
-                        <div className="mt-4 pt-3.5 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                          {/* Injury / Complaint */}
-                          <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
-                              Histórico / Queixa Principal
-                            </span>
-                            {athlete.injuries.length > 0 ? (
-                              <p className="font-medium text-slate-700 mt-0.5 truncate">
-                                {athlete.injuries[0].bodyRegion} ({athlete.injuries[0].side}):{' '}
-                                {athlete.injuries[0].description}
+                            <div>
+                              <p className="font-semibold text-[#0F241C] group-hover:text-[#175634] transition-colors">
+                                {athlete.name}
                               </p>
-                            ) : (
-                              <p className="font-medium text-emerald-700 mt-0.5">
-                                Sem lesões prévias relatadas
+                              <p className="text-[11px] text-[#7A8C84]">
+                                {athlete.mainSport} • {athlete.age} anos
                               </p>
+                            </div>
+                          </Link>
+                        </td>
+
+                        <td className="py-3.5 pr-3 text-[#3E5249] font-medium">
+                          {athlete.mainSportFrequency}x/sem
+                          {athlete.hasExtraActivity &&
+                            athlete.extraActivities.length > 0 && (
+                              <span className="block text-[10px] text-[#7A8C84]">
+                                +{athlete.extraActivities[0].activityName}
+                              </span>
                             )}
-                          </div>
+                        </td>
 
-                          {/* Hop Test LSI */}
-                          <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                                Hop Test (LSI %)
-                              </span>
-                              <span
-                                className={cn(
-                                  'font-bold text-xs',
-                                  isLsiLow ? 'text-rose-600' : 'text-emerald-600'
-                                )}
-                              >
-                                {lsi}% {isLsiLow ? '(Alerta < 90%)' : '(Adequado)'}
-                              </span>
-                            </div>
-                            <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mt-1.5">
-                              <div
-                                className={cn(
-                                  'h-full rounded-full transition-all',
-                                  isLsiLow ? 'bg-rose-500' : 'bg-emerald-500'
-                                )}
-                                style={{ width: `${Math.min(100, lsi)}%` }}
-                              />
-                            </div>
-                          </div>
+                        <td className="py-3.5 pr-3">
+                          <span
+                            className={cn(
+                              'font-semibold',
+                              lsi < 90 ? 'text-[#C83E3B]' : 'text-[#0F241C]'
+                            )}
+                          >
+                            {lsi}%
+                          </span>
+                        </td>
 
-                          {/* Orthopedic & Lunge Summary */}
-                          <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100 flex flex-col justify-between">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                              Testes Ortopédicos & Mobilidade
-                            </span>
-                            <div className="flex items-center justify-between mt-0.5">
-                              {positiveTests.length > 0 ? (
-                                <span className="font-semibold text-rose-600 truncate">
-                                  {positiveTests.length} Positivo(s):{' '}
-                                  {positiveTests.map((t) => t.name).join(', ')}
-                                </span>
-                              ) : (
-                                <span className="font-medium text-emerald-700">
-                                  Testes articulares negativos
-                                </span>
-                              )}
-                              <span className="text-[11px] text-slate-400 shrink-0 ml-2">
-                                {formatDateBR(athlete.createdAt)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </Link>
-                    </motion.div>
-                  );
-                })
-              )}
+                        {/* Mini Sparkline SVG (Inspired by "Dynamic" column in Image 4) */}
+                        <td className="py-3.5 pr-3 hidden sm:table-cell">
+                          <svg
+                            width="68"
+                            height="22"
+                            viewBox="0 0 68 22"
+                            className="overflow-visible"
+                          >
+                            <path
+                              d={
+                                lsi >= 90
+                                  ? 'M2,18 C16,16 24,8 38,10 C50,12 56,4 66,3'
+                                  : 'M2,6 C16,8 26,14 38,12 C50,10 56,17 66,19'
+                              }
+                              fill="none"
+                              stroke={statusTag.curveColor}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </td>
+
+                        <td className="py-3.5 pr-3">
+                          <Link
+                            href={`/atleta/${athlete.id}`}
+                            className={cn(
+                              'inline-block px-3 py-1 rounded-lg text-[11px] font-medium',
+                              statusTag.className
+                            )}
+                          >
+                            {statusTag.label}
+                          </Link>
+                        </td>
+
+                        <td className="py-3.5 text-right">
+                          <Link
+                            href={`/atleta/${athlete.id}`}
+                            className="inline-flex items-center justify-end gap-2 font-semibold text-[#0F241C]"
+                          >
+                            <span>{athlete.clinicalSummary.readinessScore}/100</span>
+                            <MoreVertical className="w-3.5 h-3.5 text-[#9BA9A2] group-hover:text-[#0F241C]" />
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Right 1 Column: Epidemiological Joint Chart + Clinical Summary */}
-        <div className="space-y-6">
-          {/* Joint Distribution Chart */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm space-y-4">
-            <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                Epidemiologia Clínica
-              </span>
-              <h3 className="text-base font-bold text-slate-900">
-                Acometimento por Articulação / Segmento
-              </h3>
-              <p className="text-xs text-slate-500">
-                Soma de histórico de lesões e testes ortopédicos positivos
-              </p>
-            </div>
+        {/* Right 4 Cols: Dark Forest Card with Glassmorphism Callout (Inspired by "Global pollution" card in Image 4) */}
+        <div className="lg:col-span-4 rounded-[24px] bg-[#0B1913] text-white p-6 relative overflow-hidden flex flex-col justify-between min-h-[290px]">
+          <div className="absolute -bottom-16 -right-12 w-52 h-52 rounded-full bg-[#22C55E]/20 blur-3xl pointer-events-none" />
 
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={kpis.chartData}
-                  layout="vertical"
-                  margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="region"
-                    width={100}
-                    tick={{ fontSize: 11, fill: '#334155', fontWeight: 600 }}
-                  />
-                  <Tooltip
-                    cursor={{ fill: '#f1f5f9' }}
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid #e2e8f0',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="ocorrencias" name="Ocorrências Clínicas" radius={[0, 8, 8, 0]}>
-                    {kpis.chartData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.ocorrencias >= 2 ? '#0d9488' : '#10b981'}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="flex items-center justify-between relative z-10">
+            <h3 className="text-base font-semibold text-white">
+              Mapa de Acometimento
+            </h3>
+            <span className="px-3 py-1 rounded-full bg-white text-[#0F241C] text-[11px] font-semibold">
+              Articulações
+            </span>
+          </div>
+
+          {/* Regional Bars + Glassmorphic Floating Callout */}
+          <div className="relative z-10 my-4 space-y-3">
+            {Object.entries(stats.regionMap).map(([region, count]) => {
+              const widthPct = Math.min(100, Math.max(18, count * 35));
+              return (
+                <div key={region} className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/75 font-medium">{region}</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {count} ocorr.
+                    </span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-white/[0.07] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#166534] to-[#22C55E]"
+                      style={{ width: `${widthPct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Floating Glassmorphism Badge */}
+            <div className="glass-dark rounded-2xl p-3.5 mt-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-white">
+                  {stats.topRegion[0]}
+                </p>
+                <p className="text-[11px] text-white/55">Maior incidência clínica</p>
+              </div>
+              <div className="flex items-center gap-1 text-emerald-400 font-semibold text-sm">
+                <span>{stats.topRegion[1]} casos</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </div>
             </div>
           </div>
 
-          {/* Symmetry & Readiness Quick Overview */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm space-y-4">
-            <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
-                Rastreio Funcional (RTS)
-              </span>
-              <h3 className="text-base font-bold text-slate-900">
-                Índice de Simetria (LSI %) do Elenco
-              </h3>
-              <p className="text-xs text-slate-500">
-                Meta clínica para alta esportiva: LSI ≥ 90%
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              {athletes.map((athlete) => {
-                const lsi = athlete.functional.hopTestLSI;
-                const lungeDiff = Math.abs(
-                  athlete.functional.lungeTestRightCm - athlete.functional.lungeTestLeftCm
-                );
-                return (
-                  <Link
-                    key={athlete.id}
-                    href={`/atleta/${athlete.id}`}
-                    className="block p-3 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200/60 transition-colors"
-                  >
-                    <div className="flex items-center justify-between text-xs font-semibold text-slate-800">
-                      <span>{athlete.name}</span>
-                      <span
-                        className={cn(
-                          'px-2 py-0.5 rounded-full text-[11px]',
-                          lsi < 90
-                            ? 'bg-rose-100 text-rose-700'
-                            : 'bg-emerald-100 text-emerald-700'
-                        )}
-                      >
-                        Hop LSI: {lsi}%
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500">
-                      <span>
-                        Hop: {athlete.functional.hopTestRightCm}cm (D) /{' '}
-                        {athlete.functional.hopTestLeftCm}cm (E)
-                      </span>
-                      <span
-                        className={cn(
-                          lungeDiff >= 1.5 ? 'text-amber-700 font-semibold' : 'text-slate-500'
-                        )}
-                      >
-                        Lunge Δ: {lungeDiff.toFixed(1)}cm
-                      </span>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
+          <div className="relative z-10 flex items-center justify-between text-[11px] text-white/45 pt-1">
+            <span>Sincronizado via Prisma SQLite</span>
+            <span> Tempo real</span>
           </div>
         </div>
       </div>

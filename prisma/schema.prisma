@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Athlete {
+  id                     String   @id @default(cuid())
+  name                   String
+  age                    Int
+  weight                 Float    // em kg
+  height                 Float    // em metros ou cm
+  dominance              String   // "Destro" | "Canhoto" | "Ambidestro"
+  
+  // Esporte Principal
+  mainSport              String   // Ex: Futebol, Corrida, Crossfit, Vôlei
+  mainSportFrequency     Int      // Vezes por semana (1 a 7)
+  sessionDurationMinutes Int      @default(60)
+  competitiveLevel       String   // "Amador" | "Semiprofissional" | "Profissional"
+
+  // Pratica alguma atividade além do esporte?
+  hasExtraActivity       Boolean  @default(false)
+  extraActivities        ExtraActivity[]
+
+  // Histórico de Lesões e Cirurgias
+  injuries               InjuryRecord[]
+
+  // Avaliações (Testes Funcionais e Ortopédicos)
+  functionalTests        FunctionalAssessment[]
+  orthopedicTests        OrthopedicTest[]
+
+  // Resumo / Risco Calculado
+  riskLevel              String   @default("Baixo") // "Baixo" | "Moderado" | "Alto"
+  clinicalSummary        String?
+
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model ExtraActivity {
+  id              String  @id @default(cuid())
+  activityName    String  // Ex: Musculação, Pilates, Natação, Yoga
+  weeklyFrequency Int     // Quantas vezes na semana
+  athleteId       String
+  athlete         Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+}
+
+model InjuryRecord {
+  id             String  @id @default(cuid())
+  type           String  // "Lesão" | "Cirurgia"
+  bodyRegion     String  // "Ombro" | "Cotovelo/Punho" | "Coluna" | "Quadril" | "Joelho" | "Tornozelo/Pé" | "Muscular/Outros"
+  side           String  // "Direito" | "Esquerdo" | "Bilateral" | "N/A"
+  description    String  // Ex: "Reconstrução de LCA", "Entorse grau II"
+  occurredAt     String  // Ex: "Março/2025" ou "Há 6 meses"
+  recoveryStatus String  // "Recuperado totalmente" | "Desconforto ocasional" | "Em reabilitação"
+  currentPainEVA Int     @default(0) // Escala de dor 0 a 10
+  athleteId      String
+  athlete        Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+}
+
+model FunctionalAssessment {
+  id               String   @id @default(cuid())
+  // Single Leg Hop Test (Salto Unipodal em cm)
+  hopTestRight     Float?
+  hopTestLeft      Float?
+  hopTestLSI       Float?   // Limb Symmetry Index (%) calculado automaticamente
+
+  // Y-Balance Test (Alcance composto em cm)
+  yBalanceRight    Float?
+  yBalanceLeft     Float?
+  yBalanceDiff     Float?   // Diferença absoluta ou %
+
+  // Weight-Bearing Lunge Test (Dorsiflexão de tornozelo em cm ou graus)
+  lungeTestRight   Float?
+  lungeTestLeft    Float?
+
+  // Resistência de Core
+  plankTimeSeconds Int?     // Tempo de prancha isométrica em segundos
+
+  notes            String?
+  assessedAt       DateTime @default(now())
+  athleteId        String
+  athlete          Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+}
+
+model OrthopedicTest {
+  id           String  @id @default(cuid())
+  joint        String  // "Joelho" | "Tornozelo" | "Ombro" | "Quadril/Coluna"
+  testName     String  // Ex: "Teste de Lachman", "McMurray", "Gaveta Anterior", "Neer", "Jobe", "Thompson"
+  result       String  // "Negativo" | "Positivo" | "Não realizado"
+  side         String  // "Direito" | "Esquerdo" | "Bilateral"
+  painProvoked Boolean @default(false)
+  notes        String?
+  athleteId    String
+  athlete      Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+}

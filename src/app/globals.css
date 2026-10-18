@@ -3,8 +3,33 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --forest-950: #0a1813;
+    --forest-900: #0f241c;
+    --forest-800: #173529;
+    --sage-50: #f4f7f5;
+    --sage-100: #e6f0eb;
+    --sage-200: #d1e3da;
+    --accent-green: #22c55e;
+  }
+
   body {
-    @apply bg-[#F8FAFC] text-slate-900 antialiased;
+    @apply bg-[#F3F6F4] text-[#0F241C] antialiased selection:bg-emerald-500/20 selection:text-emerald-950;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-white/80 backdrop-blur-xl border border-white/70 shadow-[0_8px_30px_rgb(15,36,28,0.04)];
+  }
+
+  .glass-dark {
+    @apply bg-white/[0.07] backdrop-blur-xl border border-white/[0.12];
+  }
+
+  .card-surface {
+    @apply bg-white rounded-[24px] border border-[#E6ECE8] shadow-[0_10px_30px_-12px_rgba(15,36,28,0.05)];
   }
 }
 

@@ -4,20 +4,14 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Activity,
+  LayoutGrid,
   ClipboardPlus,
-  LayoutDashboard,
   RotateCcw,
   Search,
-  ShieldCheck,
-  Sparkles,
-  UserCheck,
   Menu,
   X,
-  ChevronRight,
-  CheckCircle2,
-  AlertTriangle,
-  AlertOctagon,
+  Loader2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useFisioTrack } from '@/context/FisioTrackContext';
 import { cn } from '@/lib/utils';
@@ -25,13 +19,14 @@ import { cn } from '@/lib/utils';
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { athletes, searchQuery, setSearchQuery, restoreDemoData } = useFisioTrack();
+  const { athletes, isMutating, searchQuery, setSearchQuery, restoreDemoData } =
+    useFisioTrack();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRestoreToast, setShowRestoreToast] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
 
-  const handleRestoreDemo = () => {
-    restoreDemoData();
+  const handleRestoreDemo = async () => {
+    await restoreDemoData();
     setShowRestoreToast(true);
     setTimeout(() => setShowRestoreToast(false), 3000);
   };
@@ -44,281 +39,289 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )
     : [];
 
-  const getRiskDot = (risk: string) => {
-    if (risk === 'Alto') return 'bg-rose-500';
-    if (risk === 'Moderado') return 'bg-amber-500';
-    return 'bg-emerald-500';
-  };
+  const highRiskCount = athletes.filter(
+    (a) => a.clinicalSummary.riskLevel === 'Alto'
+  ).length;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-[#0B1913] text-[#0F241C] flex flex-col lg:flex-row lg:p-3 print:bg-white print:p-0">
       {/* Mobile Overlay */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm lg:hidden print:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden print:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Left Sidebar (Inspired by AeuxGlobal / Forest Glass Aesthetic) */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-72 bg-[#0F172A] text-slate-100 flex flex-col border-r border-slate-800 transition-transform duration-300 ease-in-out lg:translate-x-0 print:hidden',
+          'fixed inset-y-0 left-0 z-50 w-64 bg-[#0B1913] text-white flex flex-col justify-between transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:w-64 lg:shrink-0 print:hidden overflow-hidden',
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        {/* Brand Header */}
-        <div className="p-6 border-b border-slate-800/80 flex items-center justify-between">
-          <Link
-            href="/"
-            className="flex items-center gap-3 group"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-teal-500/25 group-hover:scale-105 transition-transform">
-              <Activity className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg tracking-tight text-white">
-                  Fisio<span className="text-emerald-400">Track</span>
-                </span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                  PRO
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">Fisioterapia Esportiva & APP</p>
-            </div>
-          </Link>
-          <button
-            onClick={() => setMobileMenuOpen(false)}
-            className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        {/* Subtle Top-Left Emerald Radial Glow */}
+        <div className="absolute -top-20 -left-20 w-56 h-56 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none" />
 
-        {/* Navigation Links */}
-        <div className="p-4 flex-1 overflow-y-auto space-y-6">
-          <div>
-            <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Menu Principal
+        <div className="relative z-10 p-5 space-y-6 flex-1 overflow-y-auto">
+          {/* Brand Logo */}
+          <div className="flex items-center justify-between px-1">
+            <Link
+              href="/"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5"
+            >
+              <div className="flex items-end gap-0.5 h-5">
+                <span className="w-1.5 h-5 rounded-full bg-[#22C55E]" />
+                <span className="w-1.5 h-3.5 rounded-full bg-[#22C55E]/70" />
+                <span className="w-1.5 h-4 rounded-full bg-[#22C55E]/40" />
+              </div>
+              <span className="font-semibold text-lg tracking-tight text-white">
+                FisioTrack
+              </span>
+            </Link>
+
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="lg:hidden p-1.5 rounded-lg text-white/60 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Glassmorphic Workspace Pill */}
+          <div className="glass-dark rounded-2xl p-3 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shrink-0 shadow-inner">
+                <span className="w-2.5 h-2.5 rounded-full bg-white" />
+              </div>
+              <div className="truncate">
+                <p className="text-[10px] text-white/50 font-medium leading-tight">
+                  Unidade Clínica
+                </p>
+                <p className="text-xs font-semibold text-white truncate">
+                  Fisio Esportiva APP
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-white/10 text-emerald-300">
+              SQL
+            </span>
+          </div>
+
+          {/* Sidebar Embedded Search (like ⌘+F in reference) */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 180)}
+              placeholder="Buscar atleta..."
+              className="w-full pl-9 pr-11 py-2.5 text-xs bg-white/[0.06] hover:bg-white/[0.09] focus:bg-white/[0.12] rounded-xl border border-white/[0.08] focus:border-emerald-400/40 outline-none text-white placeholder:text-white/40 transition-all"
+            />
+            {searchQuery ? (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-white/50 hover:text-white"
+              >
+                Limpar
+              </button>
+            ) : (
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-white/40 bg-white/[0.06] px-1.5 py-0.5 rounded border border-white/10">
+                ⌘F
+              </span>
+            )}
+
+            {/* Quick Jump Dropdown */}
+            {searchFocused && quickSearchResults.length > 0 && (
+              <div className="absolute left-0 right-0 mt-2 bg-[#12281F] border border-white/15 rounded-2xl shadow-2xl py-1.5 z-50 backdrop-blur-xl">
+                {quickSearchResults.map((athlete) => (
+                  <button
+                    key={athlete.id}
+                    onMouseDown={() => {
+                      router.push(`/atleta/${athlete.id}`);
+                      setSearchFocused(false);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between text-xs transition-colors"
+                  >
+                    <div className="truncate pr-2">
+                      <p className="font-medium text-white truncate">{athlete.name}</p>
+                      <p className="text-[10px] text-white/50">{athlete.mainSport}</p>
+                    </div>
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/10 text-emerald-300 shrink-0">
+                      {athlete.functional.hopTestLSI}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Primary Navigation */}
+          <div className="space-y-1.5">
+            <p className="px-3 text-[10px] font-semibold uppercase tracking-widest text-white/35">
+              Navegação
             </p>
             <nav className="space-y-1">
               <Link
                 href="/"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all',
+                  'flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all',
                   pathname === '/'
-                    ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-900/40'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                    ? 'bg-white/[0.11] text-white border border-white/[0.08] shadow-sm'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.05]'
                 )}
               >
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Dashboard & Rastreio</span>
+                <div className="flex items-center gap-3">
+                  <LayoutGrid className="w-4 h-4 opacity-80" />
+                  <span>Dashboard</span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/80">
+                  {athletes.length}
+                </span>
               </Link>
 
               <Link
                 href="/avaliacao/nova"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all',
+                  'flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all',
                   pathname?.startsWith('/avaliacao')
-                    ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-900/40'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                    ? 'bg-white/[0.11] text-white border border-white/[0.08] shadow-sm'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.05]'
                 )}
               >
-                <ClipboardPlus className="w-4 h-4" />
-                <span>Nova Avaliação (APP)</span>
+                <div className="flex items-center gap-3">
+                  <ClipboardPlus className="w-4 h-4 opacity-80" />
+                  <span>Nova Avaliação</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#22C55E]/20 text-[#4ADE80] font-semibold">
+                  APP
+                </span>
               </Link>
             </nav>
           </div>
 
-          {/* Direct Athlete Prontuários List */}
-          <div>
-            <div className="px-3 mb-2 flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Prontuários de Atletas ({athletes.length})
+          {/* Athletes Roster in Sidebar */}
+          <div className="space-y-2 pt-2">
+            <div className="px-3 flex items-center justify-between">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-white/35">
+                Prontuários Ativos
               </p>
+              {highRiskCount > 0 && (
+                <span className="text-[10px] text-amber-300/90 font-medium">
+                  {highRiskCount} alerta
+                </span>
+              )}
             </div>
+
             <div className="space-y-1">
               {athletes.map((athlete) => {
                 const isActive = pathname === `/atleta/${athlete.id}`;
+                const risk = athlete.clinicalSummary.riskLevel;
                 return (
                   <Link
                     key={athlete.id}
                     href={`/atleta/${athlete.id}`}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
-                      'flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm transition-all group',
+                      'flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all',
                       isActive
-                        ? 'bg-slate-800 text-white border border-teal-500/40'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                        ? 'bg-white/[0.11] text-white font-semibold border border-white/[0.08]'
+                        : 'text-white/65 hover:text-white hover:bg-white/[0.05]'
                     )}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 truncate">
                       <span
                         className={cn(
-                          'w-2 h-2 rounded-full shrink-0',
-                          getRiskDot(athlete.clinicalSummary.riskLevel)
+                          'w-1.5 h-1.5 rounded-full shrink-0',
+                          risk === 'Alto'
+                            ? 'bg-rose-400'
+                            : risk === 'Moderado'
+                            ? 'bg-amber-400'
+                            : 'bg-emerald-400'
                         )}
                       />
-                      <div className="truncate">
-                        <p className="font-medium truncate text-xs text-slate-100">
-                          {athlete.name}
-                        </p>
-                        <p className="text-[11px] text-slate-400 truncate">
-                          {athlete.mainSport} • LSI {athlete.functional.hopTestLSI}%
-                        </p>
-                      </div>
+                      <span className="truncate">{athlete.name}</span>
                     </div>
-                    <ChevronRight
-                      className={cn(
-                        'w-3.5 h-3.5 shrink-0 transition-transform',
-                        isActive
-                          ? 'text-teal-400 translate-x-0.5'
-                          : 'text-slate-500 group-hover:text-slate-300'
-                      )}
-                    />
+                    <span className="text-[11px] text-white/40 font-mono">
+                      {athlete.functional.hopTestLSI}%
+                    </span>
                   </Link>
                 );
               })}
             </div>
           </div>
-
-          {/* Clinical Criteria Legend */}
-          <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-4 space-y-2.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-teal-400">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Critérios Return-to-Play</span>
-            </div>
-            <div className="space-y-1.5 text-[11px] text-slate-300">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>LSI ≥ 90%: Simetria adequada</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Y-Balance Δ &gt; 4cm: Atenção</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <AlertOctagon className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                <span>LSI &lt; 90% ou Teste (+): Alto risco</span>
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Footer / Restore Demo Data */}
-        <div className="p-4 border-t border-slate-800/80 space-y-2 bg-slate-950/40">
+        {/* Bottom Actions & User Account */}
+        <div className="relative z-10 p-5 border-t border-white/[0.07] space-y-4">
           <button
             onClick={handleRestoreDemo}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 transition-all"
-            title="Restaura os 3 atletas padrão para apresentação"
+            disabled={isMutating}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-white/65 hover:text-white hover:bg-white/[0.06] transition-all disabled:opacity-50"
+            title="Restaura os 3 atletas padrão no SQLite"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-teal-400" />
-            <span>Restaurar Dados de Demonstração</span>
+            <span className="flex items-center gap-2.5">
+              {isMutating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+              ) : (
+                <RotateCcw className="w-3.5 h-3.5 opacity-75" />
+              )}
+              <span>Restaurar Seed SQL</span>
+            </span>
           </button>
+
           {showRestoreToast && (
-            <div className="text-[11px] text-center py-1.5 px-2 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse">
-              Dados de demonstração restaurados!
+            <div className="text-[11px] text-center py-1.5 px-2 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              Banco SQLite restaurado
             </div>
           )}
+
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-[#1C3B2E] border border-white/15 flex items-center justify-center text-xs font-semibold text-emerald-300">
+                FT
+              </div>
+              <div>
+                <p className="text-xs font-medium text-white leading-tight">
+                  Equipe Fisioterapia
+                </p>
+                <p className="text-[10px] text-white/40">prisma/dev.db</p>
+              </div>
+            </div>
+            <SlidersHorizontal className="w-3.5 h-3.5 text-white/40" />
+          </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <div className="flex-1 lg:pl-72 flex flex-col min-w-0">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 h-16 bg-white/85 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 flex items-center justify-between gap-4 print:hidden">
-          <div className="flex items-center gap-3 flex-1 max-w-xl">
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100"
-              aria-label="Abrir menu"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+      {/* Main Rounded Canvas Container (Exact match to reference images) */}
+      <div className="flex-1 bg-[#F4F7F5] lg:rounded-[30px] flex flex-col min-w-0 overflow-hidden shadow-2xl print:bg-white print:rounded-none print:shadow-none">
+        {/* Mobile Top Bar */}
+        <div className="lg:hidden flex items-center justify-between px-4 py-3.5 bg-white/80 backdrop-blur-md border-b border-[#E6ECE8] print:hidden">
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="p-2 rounded-xl text-[#0F241C] hover:bg-neutral-100"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <span className="font-semibold text-sm text-[#0F241C]">FisioTrack</span>
+          <Link
+            href="/avaliacao/nova"
+            className="px-3 py-1.5 rounded-xl bg-[#0F241C] text-white text-xs font-medium"
+          >
+            + Avaliar
+          </Link>
+        </div>
 
-            {/* Quick Athlete Search */}
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setSearchFocused(true)}
-                onBlur={() => setTimeout(() => setSearchFocused(false), 180)}
-                placeholder="Buscar atleta por nome, esporte ou lesão..."
-                className="w-full pl-10 pr-4 py-2 text-sm bg-slate-100/80 hover:bg-slate-100 focus:bg-white rounded-xl border border-transparent focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-slate-800 placeholder:text-slate-400"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
-                >
-                  Limpar
-                </button>
-              )}
-
-              {/* Dropdown Quick Jump */}
-              {searchFocused && quickSearchResults.length > 0 && (
-                <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50">
-                  <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                    Ir para Prontuário
-                  </p>
-                  {quickSearchResults.map((athlete) => (
-                    <button
-                      key={athlete.id}
-                      onMouseDown={() => {
-                        router.push(`/atleta/${athlete.id}`);
-                        setSearchFocused(false);
-                      }}
-                      className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center justify-between text-sm"
-                    >
-                      <div>
-                        <p className="font-semibold text-slate-800">{athlete.name}</p>
-                        <p className="text-xs text-slate-500">
-                          {athlete.mainSport} • {athlete.age} anos
-                        </p>
-                      </div>
-                      <span
-                        className={cn(
-                          'text-xs font-semibold px-2.5 py-0.5 rounded-full',
-                          athlete.clinicalSummary.riskLevel === 'Alto'
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : athlete.clinicalSummary.riskLevel === 'Moderado'
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        )}
-                      >
-                        Risco {athlete.clinicalSummary.riskLevel}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200/70 text-teal-800 text-xs font-medium">
-              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-              <span>Avaliação Pré-Participação (APP)</span>
-            </div>
-
-            <Link
-              href="/avaliacao/nova"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 shadow-sm shadow-teal-600/20 hover:shadow-md transition-all active:scale-[0.99]"
-            >
-              <ClipboardPlus className="w-4 h-4" />
-              <span>+ Nova Avaliação</span>
-            </Link>
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto">{children}</main>
+        {/* Main Content Area */}
+        <main className="flex-1 p-5 sm:p-8 max-w-[1360px] w-full mx-auto">
+          {children}
+        </main>
       </div>
     </div>
   );
